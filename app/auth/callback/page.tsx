@@ -16,10 +16,13 @@ function AuthCallbackContent() {
       try {
         // 从URL参数中获取验证信息
         const code = searchParams.get('code')
+        const access_token = searchParams.get('access_token')
+        const refresh_token = searchParams.get('refresh_token')
         const error = searchParams.get('error')
         const errorDescription = searchParams.get('error_description')
+        const type = searchParams.get('type')
 
-        console.log('Callback params:', { code, error, errorDescription })
+        console.log('Callback params:', { code, access_token, type, error, errorDescription })
 
         if (error) {
           console.error('Auth callback error:', error, errorDescription)
@@ -28,56 +31,90 @@ function AuthCallbackContent() {
           return
         }
 
-        if (!code) {
-          setStatus('error')
-          setMessage('验证失败：缺少验证码')
-          return
+        // 处理不同类型的验证回调
+        if (code) {
+          // 使用authorization code流程
+          const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
+          
+          if (exchangeError) {
+            console.error('Code exchange error:', exchangeError)
+            setStatus('error')
+            setMessage('验证失败：' + exchangeError.message)
+            return
+          }
+
+          if (data?.user) {
+            console.log('User verified successfully:', data.user.email)
+            await handleSuccessfulAuth(data.user)
+            return
+          }
         }
 
-        // 使用验证码交换会话
-        const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
+        // 处理直接token验证
+        if (access_token && refresh_token) {
+          const { data, error: sessionError } = await supabase.auth.setSession({
+            access_token,
+            refresh_token
+          })
+
+          if (sessionError) {
+            console.error('Session error:', sessionError)
+            setStatus('error')
+            setMessage('验证失败：' + sessionError.message)
+            return
+          }
+
+          if (data?.user) {
+            console.log('User verified successfully:', data.user.email)
+            await handleSuccessfulAuth(data.user)
+            return
+          }
+        }
+
+        // 如果没有找到验证参数
+        setStatus('error')
+        setMessage('验证失败：缺少有效的验证信息')
         
-        if (exchangeError) {
-          console.error('Code exchange error:', exchangeError)
-          setStatus('error')
-          setMessage('验证失败：' + exchangeError.message)
-          return
-        }
-
-        if (data?.user) {
-          console.log('User verified successfully:', data.user.email)
-          
-          // 创建用户档案记录（如果不存在）
-          const { error: profileError } = await fetch('/api/register', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              email: data.user.email,
-              password: 'temp-password', // 不会被使用
-              fullName: data.user.user_metadata?.full_name || data.user.email,
-              role: data.user.user_metadata?.role || 'student',
-              ...data.user.user_metadata
-            })
-          }).then(res => res.ok ? null : res.json())
-
-          setStatus('success')
-          setMessage('邮箱验证成功！正在跳转到登录页面...')
-          
-          // 3秒后跳转到登录页面
-          setTimeout(() => {
-            router.push('/')
-          }, 3000)
-        } else {
-          setStatus('error')
-          setMessage('验证失败：未返回用户信息')
-        }
       } catch (err) {
         console.error('Callback handling error:', err)
         setStatus('error')
         setMessage('验证过程中出现错误：' + String(err))
       }
+    }
+
+    const handleSuccessfulAuth = async (user: any) => {
+      // 创建用户档案记录（如果不存在）
+      try {
+        const response = await fetch('/api/register', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            email: user.email,
+            password: 'temp-password', // 不会被使用
+            fullName: user.user_metadata?.full_name || user.email,
+            role: user.user_metadata?.role || 'student',
+            ...user.user_metadata
+          })
+        })
+
+        // 不管注册API是否成功，都继续验证流程
+        if (!response.ok) {
+          const errorData = await response.json()
+          console.log('Profile creation response:', errorData)
+        }
+      } catch (error) {
+        console.log('Profile creation error (non-blocking):', error)
+      }
+
+      setStatus('success')
+      setMessage('邮箱验证成功！正在跳转到登录页面...')
+      
+      // 3秒后跳转到登录页面
+      setTimeout(() => {
+        router.push('/')
+      }, 3000)
     }
 
     handleAuthCallback()
