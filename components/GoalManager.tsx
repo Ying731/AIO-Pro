@@ -343,9 +343,9 @@ export default function GoalManager() {
         alert('目标保存成功！')
         return
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error adding goal:', error)
-      alert(`保存目标失败：${error.message || String(error)}`)
+      alert(`保存目标失败：${error?.message || String(error)}`)
     }
 
     // 如果数据库保存失败，提供重试选项
