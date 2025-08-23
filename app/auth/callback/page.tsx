@@ -37,6 +37,29 @@ function AuthCallbackContent() {
         console.log('URL完整地址:', window.location.href)
         console.log('关键参数:', { code, access_token, refresh_token, token, email, type, error })
 
+        // 如果没有任何验证参数，检查用户是否已经登录
+        const hasValidParams = !!(code || access_token || token)
+        if (!hasValidParams && Object.keys(allParams).length === 0) {
+          console.log('没有验证参数，检查当前用户会话...')
+          try {
+            const { data: { user }, error: userError } = await supabase.auth.getUser()
+            
+            if (!userError && user) {
+              console.log('用户已经验证并登录:', user.email)
+              setStatus('success')
+              setMessage('您已经成功验证过邮箱，正在跳转到登录页面...')
+              setTimeout(() => {
+                router.push('/?verified=true')
+              }, 3000)
+              return
+            } else {
+              console.log('未找到当前用户会话:', userError)
+            }
+          } catch (err) {
+            console.log('检查用户会话异常:', err)
+          }
+        }
+
         if (error) {
           console.error('Auth callback error:', error, errorDescription)
           setStatus('error')
@@ -114,7 +137,7 @@ function AuthCallbackContent() {
         } else {
           console.log('所有验证方法都失败，URL参数:', allParams)
           setStatus('error')
-          setMessage(`验证失败：邮箱验证链接格式不正确。\n\n调试信息：${JSON.stringify(allParams, null, 2)}\n\n请联系管理员或重新注册。`)
+          setMessage(`验证失败：邮箱验证链接格式不正确。\n\n调试信息：${JSON.stringify(allParams, null, 2)}\n\n如果您已经验证过邮箱，请直接访问登录页面。`)
         }
         
       } catch (err) {
@@ -198,13 +221,21 @@ function AuthCallbackContent() {
           <>
             <XCircle className="w-16 h-16 text-red-600 mx-auto mb-4" />
             <h1 className="text-2xl font-bold text-gray-900 mb-2">验证失败</h1>
-            <p className="text-gray-600 mb-6">{message}</p>
-            <button
-              onClick={() => router.push('/')}
-              className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            >
-              返回登录页面
-            </button>
+            <p className="text-gray-600 mb-6 whitespace-pre-line">{message}</p>
+            <div className="space-y-3">
+              <button
+                onClick={() => router.push('/')}
+                className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              >
+                返回登录页面
+              </button>
+              <button
+                onClick={() => router.push('/register')}
+                className="w-full bg-gray-200 text-gray-800 py-2 px-4 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+              >
+                重新注册
+              </button>
+            </div>
           </>
         )}
       </div>

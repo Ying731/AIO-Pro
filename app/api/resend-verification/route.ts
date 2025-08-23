@@ -37,7 +37,15 @@ export async function POST(request: NextRequest) {
 
     if (user.email_confirmed_at) {
       return NextResponse.json(
-        { error: '该邮箱已经验证过了，可以直接登录' },
+        { 
+          error: '该邮箱已经验证过了，可以直接登录',
+          alreadyVerified: true,
+          user: {
+            id: user.id,
+            email: user.email,
+            confirmedAt: user.email_confirmed_at
+          }
+        },
         { status: 400 }
       )
     }
