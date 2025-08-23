@@ -136,14 +136,15 @@ export default function GoalManager() {
 
   const loadGoals = async (studentId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('learning_goals')
-        .select('*')
-        .eq('student_id', studentId)
-        .order('created_at', { ascending: false })
-
-      if (error) throw error
-      setGoals(data || [])
+      const response = await fetch(`/api/goals?student_id=${studentId}`)
+      const result = await response.json()
+      
+      if (response.ok && result.success) {
+        setGoals(result.data || [])
+      } else {
+        console.error('Error loading goals from API:', result.error)
+        throw new Error(result.error || 'Failed to load goals')
+      }
     } catch (error) {
       console.error('Error loading goals:', error)
       loadMockData()
@@ -315,33 +316,33 @@ export default function GoalManager() {
     }
 
     try {
-      const goalToInsert = {
+      const goalToSave = {
         ...goalData,
         student_id: studentId,
         target_date: goalData.target_date || null
       }
       
-      console.log('Inserting goal:', goalToInsert)
+      console.log('Sending goal to API:', goalToSave)
       
-      const { data, error } = await supabase
-        .from('learning_goals')
-        .insert([goalToInsert])
-        .select()
-        .single()
+      const response = await fetch('/api/goals', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(goalToSave)
+      })
 
-      console.log('Insert result:', { data, error })
+      const result = await response.json()
+      console.log('API response:', result)
 
-      if (error) {
-        console.error('Supabase error:', error)
-        throw error
-      }
-      
-      if (data) {
-        console.log('Goal saved to database successfully:', data)
-        setGoals([data, ...goals])
+      if (response.ok && result.success) {
+        console.log('Goal saved to database successfully:', result.data)
+        setGoals([result.data, ...goals])
         setShowAddForm(false)
         alert('目标保存成功！')
         return
+      } else {
+        throw new Error(result.error || 'API request failed')
       }
     } catch (error: any) {
       console.error('Error adding goal:', error)
