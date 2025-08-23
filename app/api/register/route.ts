@@ -74,16 +74,18 @@ export async function POST(request: NextRequest) {
         ? `https://${process.env.VERCEL_URL}` 
         : process.env.APP_URL || 'http://localhost:3003'
       
-      console.log('使用的回调 URL:', `${appUrl}/auth/callback`)
+      // 使用API端点处理验证，完全避免客户端fetch
+      const redirectUrl = `${appUrl}/api/verify-email`
+      console.log('使用API验证端点:', redirectUrl)
       
-      // 使用 inviteUserByEmail 发送验证邮件，使用超级简化的回调页面
+      // 使用 inviteUserByEmail 发送验证邮件，重定向到API端点
       const { error: emailError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
         data: {
           full_name: fullName,
           role,
           ...otherData
         },
-        redirectTo: `${appUrl}/auth/callback/super-simple`
+        redirectTo: redirectUrl
       })
 
       if (emailError) {
