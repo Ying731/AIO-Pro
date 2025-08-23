@@ -18,11 +18,15 @@ function AuthCallbackContent() {
         const code = searchParams.get('code')
         const access_token = searchParams.get('access_token')
         const refresh_token = searchParams.get('refresh_token')
+        const token_type = searchParams.get('token_type')
+        const expires_in = searchParams.get('expires_in')
         const error = searchParams.get('error')
         const errorDescription = searchParams.get('error_description')
         const type = searchParams.get('type')
-
-        console.log('Callback params:', { code, access_token, type, error, errorDescription })
+        
+        // inviteUserByEmail 通常使用这些参数
+        const token = searchParams.get('token')
+        const email = searchParams.get('email')
 
         // 获取所有URL参数进行调试
         const allParams: { [key: string]: string } = {}
@@ -31,6 +35,7 @@ function AuthCallbackContent() {
         }
         console.log('所有URL参数:', allParams)
         console.log('URL完整地址:', window.location.href)
+        console.log('关键参数:', { code, access_token, refresh_token, token, email, type, error })
 
         if (error) {
           console.error('Auth callback error:', error, errorDescription)
@@ -39,50 +44,78 @@ function AuthCallbackContent() {
           return
         }
 
-        // 处理不同类型的验证回调
-        if (code) {
-          // 使用authorization code流程
-          const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
-          
-          if (exchangeError) {
-            console.error('Code exchange error:', exchangeError)
-            setStatus('error')
-            setMessage('验证失败：' + exchangeError.message)
-            return
-          }
+        // 尝试不同的验证方法
+        let authSuccess = false
+        let userData = null
 
-          if (data?.user) {
-            console.log('User verified successfully:', data.user.email)
-            await handleSuccessfulAuth(data.user)
-            return
-          }
-        }
+        // 方法1: 处理inviteUserByEmail产生的token
+        if (token && !authSuccess) {
+          console.log('尝试处理invite token...')
+          try {
+            const { data, error: verifyError } = await supabase.auth.verifyOtp({
+              token_hash: token,
+              type: 'invite'
+            })
 
-        // 处理直接token验证
-        if (access_token && refresh_token) {
-          const { data, error: sessionError } = await supabase.auth.setSession({
-            access_token,
-            refresh_token
-          })
-
-          if (sessionError) {
-            console.error('Session error:', sessionError)
-            setStatus('error')
-            setMessage('验证失败：' + sessionError.message)
-            return
-          }
-
-          if (data?.user) {
-            console.log('User verified successfully:', data.user.email)
-            await handleSuccessfulAuth(data.user)
-            return
+            if (!verifyError && data?.user) {
+              console.log('使用invite token验证成功')
+              userData = data.user
+              authSuccess = true
+            } else {
+              console.log('invite token验证失败:', verifyError)
+            }
+          } catch (err) {
+            console.log('invite token处理异常:', err)
           }
         }
 
-        // 如果没有找到验证参数
-        console.error('验证失败：没有找到有效的验证参数', allParams)
-        setStatus('error')
-        setMessage(`验证失败：邮箱验证链接格式不正确。\n\n调试信息：${JSON.stringify(allParams, null, 2)}\n\n请联系管理员或重新注册。`)
+        // 方法2: 如果有access_token，直接设置会话
+        if (access_token && refresh_token && !authSuccess) {
+          console.log('尝试使用access_token设置会话...')
+          try {
+            const { data, error: sessionError } = await supabase.auth.setSession({
+              access_token,
+              refresh_token
+            })
+
+            if (!sessionError && data?.user) {
+              console.log('使用access_token验证成功')
+              userData = data.user
+              authSuccess = true
+            } else {
+              console.log('access_token验证失败:', sessionError)
+            }
+          } catch (err) {
+            console.log('access_token处理异常:', err)
+          }
+        }
+
+        // 方法3: 如果有code，使用exchangeCodeForSession
+        if (code && !authSuccess) {
+          console.log('尝试使用authorization code...')
+          try {
+            const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
+            
+            if (!exchangeError && data?.user) {
+              console.log('使用code验证成功')
+              userData = data.user
+              authSuccess = true
+            } else {
+              console.log('code验证失败:', exchangeError)
+            }
+          } catch (err) {
+            console.log('code处理异常:', err)
+          }
+        }
+
+        if (authSuccess && userData) {
+          console.log('验证成功，用户数据:', userData)
+          await handleSuccessfulAuth(userData)
+        } else {
+          console.log('所有验证方法都失败，URL参数:', allParams)
+          setStatus('error')
+          setMessage(`验证失败：邮箱验证链接格式不正确。\n\n调试信息：${JSON.stringify(allParams, null, 2)}\n\n请联系管理员或重新注册。`)
+        }
         
       } catch (err) {
         console.error('Callback handling error:', err)

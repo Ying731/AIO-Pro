@@ -13,19 +13,21 @@ export default function TestEmailPage() {
     setResult('')
     
     try {
-      // 测试重新发送验证邮件
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
-        email: email,
-        options: {
-          emailRedirectTo: `https://aio-pro.vercel.app/auth/callback`
-        }
+      // 调用API重新发送验证邮件
+      const response = await fetch('/api/resend-verification', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email })
       })
 
-      if (error) {
-        setResult(`错误: ${error.message}`)
-      } else {
+      const data = await response.json()
+      
+      if (response.ok) {
         setResult('验证邮件已发送！请检查邮箱。')
+      } else {
+        setResult(`错误: ${data.error || '未知错误'}`)
       }
     } catch (err) {
       setResult(`异常: ${String(err)}`)

@@ -69,13 +69,14 @@ export async function POST(request: NextRequest) {
       userId = authData.user.id
       console.log('User created (email not confirmed):', userId)
 
-      // 使用 resend 发送验证邮件，这会实际发送邮件
-      const { error: emailError } = await supabaseAdmin.auth.resend({
-        type: 'signup',
-        email: email,
-        options: {
-          emailRedirectTo: `${process.env.APP_URL || 'http://localhost:3003'}/auth/callback`
-        }
+      // 使用 inviteUserByEmail 发送验证邮件，这个方法更可靠
+      const { error: emailError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+        data: {
+          full_name: fullName,
+          role,
+          ...otherData
+        },
+        redirectTo: `${process.env.APP_URL || 'http://localhost:3003'}/auth/callback`
       })
 
       if (emailError) {
@@ -83,7 +84,7 @@ export async function POST(request: NextRequest) {
         // 删除已创建的用户，因为无法发送验证邮件
         await supabaseAdmin.auth.admin.deleteUser(userId)
         return NextResponse.json(
-          { error: '发送验证邮件失败，请稍后重试' }, 
+          { error: '发送验证邮件失败：' + emailError.message }, 
           { status: 500 }
         )
       } else {
