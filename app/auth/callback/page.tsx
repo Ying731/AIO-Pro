@@ -75,9 +75,9 @@ function AuthCallbackContent() {
         if (token && !authSuccess) {
           console.log('尝试处理invite token...')
           try {
-            // 对于invite类型，直接使用token而不是token_hash
+            // 对于invite类型，使用token_hash
             const { data, error: verifyError } = await supabase.auth.verifyOtp({
-              token: token,
+              token_hash: token,
               type: 'invite'
             })
 
@@ -87,21 +87,6 @@ function AuthCallbackContent() {
               authSuccess = true
             } else {
               console.log('invite token验证失败:', verifyError)
-              // 如果invite验证失败，尝试作为email验证
-              try {
-                const { data: emailData, error: emailError } = await supabase.auth.verifyOtp({
-                  token: token,
-                  type: 'email'
-                })
-                
-                if (!emailError && emailData?.user) {
-                  console.log('使用email token验证成功')
-                  userData = emailData.user
-                  authSuccess = true
-                }
-              } catch (emailErr) {
-                console.log('email token处理异常:', emailErr)
-              }
             }
           } catch (err) {
             console.log('invite token处理异常:', err)
@@ -168,29 +153,39 @@ function AuthCallbackContent() {
       console.log('Email verified successfully, creating user profile...', user)
       
       try {
-        const response = await fetch('/api/create-profile', {
+        // 使用绝对URL来避免fetch错误
+        const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
+        const apiUrl = `${baseUrl}/api/create-profile`
+        
+        console.log('Creating profile with URL:', apiUrl)
+        
+        const profileData = {
+          userId: user.id,
+          email: user.email,
+          fullName: user.user_metadata?.full_name || user.email?.split('@')[0] || '用户',
+          role: user.user_metadata?.role || 'student',
+          ...user.user_metadata
+        }
+        
+        console.log('Profile data:', profileData)
+
+        const response = await fetch(apiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            userId: user.id,
-            email: user.email,
-            fullName: user.user_metadata?.full_name || user.email?.split('@')[0] || '用户',
-            role: user.user_metadata?.role || 'student',
-            ...user.user_metadata
-          })
+          body: JSON.stringify(profileData)
         })
 
-        const result = await response.json()
-        
         if (!response.ok) {
-          console.error('Profile creation failed:', result)
+          const errorText = await response.text()
+          console.error('Profile creation failed:', response.status, errorText)
           setStatus('error')
-          setMessage('验证成功但档案创建失败：' + (result.error || '未知错误'))
+          setMessage(`验证成功但档案创建失败：HTTP ${response.status} - ${errorText}`)
           return
         }
 
+        const result = await response.json()
         console.log('Profile created successfully:', result)
         setStatus('success')
         setMessage('邮箱验证成功！用户档案已创建，正在跳转到登录页面...')
