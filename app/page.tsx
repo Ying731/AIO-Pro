@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { GraduationCap } from 'lucide-react'
+import { GraduationCap, CheckCircle } from 'lucide-react'
 import Link from 'next/link'
 
 export default function LoginPage() {
@@ -10,11 +10,23 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
+
+  useEffect(() => {
+    // 检查是否从邮箱验证页面跳转过来
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.get('verified') === 'true') {
+      setSuccessMessage('邮箱验证成功！现在您可以登录了。')
+      // 清除URL参数
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
+  }, [])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setError('')
+    setSuccessMessage('')
 
     try {
       const { error } = await supabase.auth.signInWithPassword({
@@ -22,7 +34,13 @@ export default function LoginPage() {
         password
       })
       
-      if (error) throw error
+      if (error) {
+        // 处理特定的邮箱未验证错误
+        if (error.message.includes('email not confirmed') || error.message.includes('Email not confirmed')) {
+          throw new Error('邮箱未验证，请检查您的邮箱并点击验证链接后再登录')
+        }
+        throw error
+      }
       
       // 登录成功，重定向将由认证状态变化处理
       window.location.href = '/dashboard'
@@ -76,6 +94,13 @@ export default function LoginPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
+
+            {successMessage && (
+              <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded flex items-center">
+                <CheckCircle className="w-5 h-5 mr-2" />
+                {successMessage}
+              </div>
+            )}
 
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">

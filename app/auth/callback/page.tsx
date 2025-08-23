@@ -83,7 +83,9 @@ function AuthCallbackContent() {
     }
 
     const handleSuccessfulAuth = async (user: any) => {
-      // 创建用户档案记录（如果不存在）
+      // 只有邮箱验证成功后才创建用户档案记录
+      console.log('Email verified successfully, creating user profile...')
+      
       try {
         const response = await fetch('/api/register', {
           method: 'POST',
@@ -93,27 +95,35 @@ function AuthCallbackContent() {
           body: JSON.stringify({
             email: user.email,
             password: 'temp-password', // 不会被使用
-            fullName: user.user_metadata?.full_name || user.email,
+            fullName: user.user_metadata?.full_name || user.email?.split('@')[0] || '用户',
             role: user.user_metadata?.role || 'student',
             ...user.user_metadata
           })
         })
 
-        // 不管注册API是否成功，都继续验证流程
+        const result = await response.json()
+        
         if (!response.ok) {
-          const errorData = await response.json()
-          console.log('Profile creation response:', errorData)
+          console.error('Profile creation failed:', result)
+          setStatus('error')
+          setMessage('验证成功但档案创建失败，请联系管理员')
+          return
         }
-      } catch (error) {
-        console.log('Profile creation error (non-blocking):', error)
-      }
 
-      setStatus('success')
-      setMessage('邮箱验证成功！正在跳转到登录页面...')
+        console.log('Profile created successfully:', result)
+        setStatus('success')
+        setMessage('邮箱验证成功！档案已创建，正在跳转到登录页面...')
+        
+      } catch (error) {
+        console.error('Profile creation error:', error)
+        setStatus('error')
+        setMessage('验证成功但档案创建出错，请联系管理员')
+        return
+      }
       
       // 3秒后跳转到登录页面
       setTimeout(() => {
-        router.push('/')
+        router.push('/?verified=true')
       }, 3000)
     }
 
