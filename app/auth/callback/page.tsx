@@ -84,17 +84,17 @@ function AuthCallbackContent() {
 
     const handleSuccessfulAuth = async (user: any) => {
       // 只有邮箱验证成功后才创建用户档案记录
-      console.log('Email verified successfully, creating user profile...')
+      console.log('Email verified successfully, creating user profile...', user)
       
       try {
-        const response = await fetch('/api/register', {
+        const response = await fetch('/api/create-profile', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
+            userId: user.id,
             email: user.email,
-            password: 'temp-password', // 不会被使用
             fullName: user.user_metadata?.full_name || user.email?.split('@')[0] || '用户',
             role: user.user_metadata?.role || 'student',
             ...user.user_metadata
@@ -106,18 +106,18 @@ function AuthCallbackContent() {
         if (!response.ok) {
           console.error('Profile creation failed:', result)
           setStatus('error')
-          setMessage('验证成功但档案创建失败，请联系管理员')
+          setMessage('验证成功但档案创建失败：' + (result.error || '未知错误'))
           return
         }
 
         console.log('Profile created successfully:', result)
         setStatus('success')
-        setMessage('邮箱验证成功！档案已创建，正在跳转到登录页面...')
+        setMessage('邮箱验证成功！用户档案已创建，正在跳转到登录页面...')
         
       } catch (error) {
         console.error('Profile creation error:', error)
         setStatus('error')
-        setMessage('验证成功但档案创建出错，请联系管理员')
+        setMessage('验证成功但档案创建出错：' + String(error))
         return
       }
       
