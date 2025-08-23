@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { CheckCircle, XCircle, Loader } from 'lucide-react'
 
-export default function AuthCallbackPage() {
+function AuthCallbackContent() {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
   const [message, setMessage] = useState('')
   const router = useRouter()
@@ -120,5 +120,21 @@ export default function AuthCallbackPage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function AuthCallbackPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-cyan-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8 text-center">
+          <Loader className="w-16 h-16 text-blue-600 mx-auto mb-4 animate-spin" />
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">加载中...</h1>
+          <p className="text-gray-600">正在处理您的请求，请稍候</p>
+        </div>
+      </div>
+    }>
+      <AuthCallbackContent />
+    </Suspense>
   )
 }
