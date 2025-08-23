@@ -49,27 +49,88 @@ export default function GoalManager() {
     try {
       // 获取当前用户
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) {
+        console.log('No authenticated user found')
+        loadMockData()
+        return
+      }
+
+      console.log('Current user:', user.id, user.email)
 
       // 获取学生信息
-      const { data: student } = await supabase
+      const { data: student, error: studentError } = await supabase
         .from('students')
-        .select('id')
+        .select('id, user_id, student_id')
         .eq('user_id', user.id)
         .single()
 
-      if (student) {
+      console.log('Student query result:', { student, studentError })
+
+      if (student && !studentError) {
+        console.log('Found student record:', student)
         setStudentId(student.id)
         await loadGoals(student.id)
       } else {
-        // 如果数据库中没有学生记录，使用模拟数据
-        loadMockData()
+        console.log('No student record found, error:', studentError)
+        // 创建学生记录
+        await createStudentRecord(user)
       }
     } catch (error) {
-      console.error('Error loading data:', error)
+      console.error('Error in initializeData:', error)
       loadMockData()
     } finally {
       setLoading(false)
+    }
+  }
+
+  const createStudentRecord = async (user: any) => {
+    try {
+      console.log('Creating student record for user:', user.id)
+      
+      // 先检查是否有profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single()
+      
+      console.log('User profile:', profile)
+      
+      if (!profile) {
+        console.log('No profile found, cannot create student record')
+        loadMockData()
+        return
+      }
+
+      // 创建学生记录
+      const { data: newStudent, error: createError } = await supabase
+        .from('students')
+        .insert([{
+          user_id: user.id,
+          student_id: user.email?.split('@')[0] || `STU${Date.now()}`,
+          grade: 1,
+          major: '软件工程',
+          class_name: '软件工程1班',
+          enrollment_year: new Date().getFullYear(),
+          status: 'active',
+          gpa: 0.0,
+          total_credits: 0
+        }])
+        .select()
+        .single()
+
+      console.log('Create student result:', { newStudent, createError })
+
+      if (newStudent && !createError) {
+        setStudentId(newStudent.id)
+        await loadGoals(newStudent.id)
+      } else {
+        console.error('Failed to create student record:', createError)
+        loadMockData()
+      }
+    } catch (error) {
+      console.error('Error creating student record:', error)
+      loadMockData()
     }
   }
 
@@ -247,41 +308,59 @@ export default function GoalManager() {
     console.log('Adding goal:', goalData)
     console.log('Student ID:', studentId)
     
-    if (studentId) {
-      try {
-        const { data, error } = await supabase
-          .from('learning_goals')
-          .insert([{
-            ...goalData,
-            student_id: studentId,
-            target_date: goalData.target_date || null
-          }])
-          .select()
-          .single()
+    if (!studentId) {
+      console.error('No student ID available')
+      alert('无法保存目标：用户信息不完整。请重新登录。')
+      return
+    }
 
-        if (error) throw error
-        if (data) {
-          console.log('Goal saved to database:', data)
-          setGoals([data, ...goals])
-          setShowAddForm(false)
-          return
-        }
-      } catch (error) {
-        console.error('Error adding goal:', error)
-        alert('保存目标失败，将使用本地存储')
+    try {
+      const goalToInsert = {
+        ...goalData,
+        student_id: studentId,
+        target_date: goalData.target_date || null
       }
+      
+      console.log('Inserting goal:', goalToInsert)
+      
+      const { data, error } = await supabase
+        .from('learning_goals')
+        .insert([goalToInsert])
+        .select()
+        .single()
+
+      console.log('Insert result:', { data, error })
+
+      if (error) {
+        console.error('Supabase error:', error)
+        throw error
+      }
+      
+      if (data) {
+        console.log('Goal saved to database successfully:', data)
+        setGoals([data, ...goals])
+        setShowAddForm(false)
+        alert('目标保存成功！')
+        return
+      }
+    } catch (error) {
+      console.error('Error adding goal:', error)
+      alert(`保存目标失败：${error.message || String(error)}`)
     }
 
-    // 降级到本地状态管理
-    console.log('Using local storage fallback')
-    const newGoal: Goal = {
-      ...goalData,
-      id: Date.now().toString(),
-      created_at: new Date().toISOString().split('T')[0],
-      updated_at: new Date().toISOString().split('T')[0]
+    // 如果数据库保存失败，提供重试选项
+    const retryLocal = confirm('数据库保存失败，是否改为本地存储？')
+    if (retryLocal) {
+      console.log('Using local storage fallback')
+      const newGoal: Goal = {
+        ...goalData,
+        id: Date.now().toString(),
+        created_at: new Date().toISOString().split('T')[0],
+        updated_at: new Date().toISOString().split('T')[0]
+      }
+      setGoals([newGoal, ...goals])
+      setShowAddForm(false)
     }
-    setGoals([newGoal, ...goals])
-    setShowAddForm(false)
   }
 
   if (loading) {
