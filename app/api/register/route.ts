@@ -27,63 +27,77 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    // 1. 创建认证用户（需要邮箱验证）
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: false, // 恢复邮箱验证流程
-      user_metadata: {
-        full_name: fullName,
-        role,
-        ...otherData
-      }
-    })
+    // 检查用户是否已存在
+    const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers()
+    const userExists = existingUser.users.some(user => user.email === email)
 
-    if (authError) {
-      console.error('Auth error:', authError)
-      return NextResponse.json(
-        { error: '用户创建失败：' + authError.message }, 
-        { status: 400 }
-      )
-    }
+    let userId: string
 
-    if (!authData.user) {
-      return NextResponse.json(
-        { error: '用户创建失败：未返回用户数据' }, 
-        { status: 400 }
-      )
-    }
-
-    console.log('User created:', authData.user.id)
-
-    // 2. 发送验证邮件
-    const { error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-      data: {
-        full_name: fullName,
-        role,
-        ...otherData
-      },
-      redirectTo: `${process.env.APP_URL || 'http://localhost:3006'}/auth/callback`
-    })
-
-    if (inviteError) {
-      console.log('邮件发送失败，但用户已创建:', inviteError.message)
+    if (userExists) {
+      // 如果用户已存在（通过邮箱验证创建），获取用户ID
+      const existingUserData = existingUser.users.find(user => user.email === email)
+      userId = existingUserData!.id
+      console.log('User already exists:', userId)
     } else {
-      console.log('验证邮件已发送')
+      // 如果用户不存在，创建新用户
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: false,
+        user_metadata: {
+          full_name: fullName,
+          role,
+          ...otherData
+        }
+      })
+
+      if (authError) {
+        console.error('Auth error:', authError)
+        return NextResponse.json(
+          { error: '用户创建失败：' + authError.message }, 
+          { status: 400 }
+        )
+      }
+
+      if (!authData.user) {
+        return NextResponse.json(
+          { error: '用户创建失败：未返回用户数据' }, 
+          { status: 400 }
+        )
+      }
+
+      userId = authData.user.id
+      console.log('User created:', userId)
+
+      // 发送验证邮件
+      const { error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+        data: {
+          full_name: fullName,
+          role,
+          ...otherData
+        },
+        redirectTo: `${process.env.APP_URL || 'http://localhost:3005'}/auth/callback`
+      })
+
+      if (inviteError) {
+        console.log('邮件发送失败，但用户已创建:', inviteError.message)
+      } else {
+        console.log('验证邮件已发送')
+      }
     }
 
     // 2. 检查档案是否已存在，如果不存在则创建
     const { data: existingProfile } = await supabaseAdmin
       .from('profiles')
       .select('id')
-      .eq('id', authData.user.id)
+      .eq('id', userId)
       .single()
 
     if (!existingProfile) {
       const { error: profileError } = await supabaseAdmin
         .from('profiles')
         .insert([{
-          id: authData.user.id,
+          id: userId,
           email,
           full_name: fullName,
           role
@@ -107,14 +121,14 @@ export async function POST(request: NextRequest) {
       const { data: existingStudent } = await supabaseAdmin
         .from('students')
         .select('user_id')
-        .eq('user_id', authData.user.id)
+        .eq('user_id', userId)
         .single()
 
       if (!existingStudent) {
         const { error: studentError } = await supabaseAdmin
           .from('students')
           .insert([{
-            user_id: authData.user.id,
+            user_id: userId,
             student_id: otherData.studentId || '',
             grade: parseInt(otherData.grade) || 1,
             major: otherData.major || '未指定专业',
@@ -138,14 +152,14 @@ export async function POST(request: NextRequest) {
       const { data: existingTeacher } = await supabaseAdmin
         .from('teachers')
         .select('user_id')
-        .eq('user_id', authData.user.id)
+        .eq('user_id', userId)
         .single()
 
       if (!existingTeacher) {
         const { error: teacherError } = await supabaseAdmin
           .from('teachers')
           .insert([{
-            user_id: authData.user.id,
+            user_id: userId,
             employee_id: otherData.employeeId || '',
             department: otherData.department || '未指定部门',
             title: otherData.title || '讲师',
@@ -167,8 +181,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       user: {
-        id: authData.user.id,
-        email: authData.user.email,
+        id: userId,
+        email: email,
         role
       },
       message: '注册成功！请检查您的邮箱以验证账户，验证后即可登录。'
