@@ -24,6 +24,14 @@ function AuthCallbackContent() {
 
         console.log('Callback params:', { code, access_token, type, error, errorDescription })
 
+        // 获取所有URL参数进行调试
+        const allParams: { [key: string]: string } = {}
+        for (const [key, value] of searchParams.entries()) {
+          allParams[key] = value
+        }
+        console.log('所有URL参数:', allParams)
+        console.log('URL完整地址:', window.location.href)
+
         if (error) {
           console.error('Auth callback error:', error, errorDescription)
           setStatus('error')
@@ -72,8 +80,9 @@ function AuthCallbackContent() {
         }
 
         // 如果没有找到验证参数
+        console.error('验证失败：没有找到有效的验证参数', allParams)
         setStatus('error')
-        setMessage('验证失败：缺少有效的验证信息')
+        setMessage(`验证失败：邮箱验证链接格式不正确。\n\n调试信息：${JSON.stringify(allParams, null, 2)}\n\n请联系管理员或重新注册。`)
         
       } catch (err) {
         console.error('Callback handling error:', err)
