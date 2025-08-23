@@ -162,12 +162,26 @@ export default function ChatPage() {
           metadata: {}
         })
 
-      // 模拟AI响应（实际项目中这里会调用AI API）
-      setTimeout(async () => {
+      // 调用学生AI智能体API
+      const response = await fetch('/api/ai/student', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: inputMessage,
+          conversationId: currentConversation,
+          userId: user.id
+        })
+      })
+
+      const data = await response.json()
+      
+      if (data.success) {
         const aiResponse: Message = {
           id: 'ai-' + Date.now(),
           role: 'assistant',
-          content: getAIResponse(inputMessage),
+          content: data.response,
           timestamp: new Date().toISOString()
         }
 
@@ -182,25 +196,23 @@ export default function ChatPage() {
             content: aiResponse.content,
             metadata: {}
           })
+      } else {
+        // 出错时显示错误信息
+        const errorResponse: Message = {
+          id: 'error-' + Date.now(),
+          role: 'assistant',
+          content: '抱歉，我暂时无法回复您的问题。请稍后再试。',
+          timestamp: new Date().toISOString()
+        }
+        setMessages(prev => [...prev, errorResponse])
+      }
 
-        setIsLoading(false)
-      }, 1000)
+      setIsLoading(false)
 
     } catch (error) {
       console.error('Error sending message:', error)
       setIsLoading(false)
     }
-  }
-
-  const getAIResponse = (input: string): string => {
-    const responses = [
-      '这是一个很好的问题！根据您的学习情况，我建议您可以从以下几个方面入手...',
-      '让我为您分析一下这个问题。基于启明星平台的数据，您的学习进度很不错...',
-      '我理解您的困惑。在学习过程中遇到这种问题是很正常的，让我为您提供一些建议...',
-      '根据您的学习目标和当前进度，我推荐您可以尝试以下学习方法...',
-      '这个知识点确实比较重要。让我结合您之前的学习记录来为您详细解释...'
-    ]
-    return responses[Math.floor(Math.random() * responses.length)]
   }
 
   const selectConversation = (conversationId: string) => {

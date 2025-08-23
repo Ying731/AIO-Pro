@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { GraduationCap, BookOpen, MessageCircle, Users, LogOut } from 'lucide-react'
+import { GraduationCap, BookOpen, MessageCircle, Users, LogOut, Database } from 'lucide-react'
 import GoalManager from '@/components/GoalManager'
 import Link from 'next/link'
 
@@ -175,6 +175,28 @@ export default function DashboardPage() {
               </Link>
             </div>
           </div>
+
+          {/* 教师专属：知识库管理 */}
+          {(role === 'teacher' || role === 'admin') && (
+            <div className="bg-white rounded-lg shadow-sm p-6 border hover:shadow-md transition-shadow">
+              <div className="flex items-center">
+                <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                  <Database className="w-6 h-6 text-orange-600" />
+                </div>
+                <div className="ml-4">
+                  <h3 className="text-lg font-medium text-gray-900">知识库管理</h3>
+                  <p className="text-sm text-gray-500">管理AI助手的知识内容</p>
+                </div>
+              </div>
+              <div className="mt-4">
+                <Link href="/knowledge">
+                  <button className="w-full bg-orange-600 text-white py-2 px-4 rounded-md hover:bg-orange-700 transition-colors">
+                    管理知识库
+                  </button>
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 学生专属：目标管理 */}
