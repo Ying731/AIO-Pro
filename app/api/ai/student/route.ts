@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       .limit(10)
 
     // 构建上下文
-    const context = buildStudentContext(profile, student, messageHistory)
+    const context = buildStudentContext(profile, student, messageHistory || [])
     
     // 搜索相关知识库内容
     const knowledgeResults = await searchKnowledgeBase(message, userId)

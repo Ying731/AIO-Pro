@@ -58,7 +58,7 @@ export default function ChatPage() {
         .from('chat_conversations')
         .select('*')
         .eq('user_id', user.id)
-        .eq('agent_type', 'student')
+        .eq('agent_type', user.user_metadata?.role === 'teacher' || user.user_metadata?.role === 'admin' ? 'teacher' : 'student')
         .order('created_at', { ascending: false })
 
       if (!error && data) {
@@ -102,7 +102,7 @@ export default function ChatPage() {
         .from('chat_conversations')
         .insert({
           user_id: user.id,
-          agent_type: 'student',
+          agent_type: user.user_metadata?.role === 'teacher' || user.user_metadata?.role === 'admin' ? 'teacher' : 'student',
           title: `新对话 ${new Date().toLocaleString()}`,
           context_data: {}
         })
@@ -114,10 +114,15 @@ export default function ChatPage() {
         setCurrentConversation(data.id)
         setMessages([])
         // 添加欢迎消息
+        const userRole = user.user_metadata?.role || 'student'
+        const welcomeContent = userRole === 'teacher' || userRole === 'admin' ? 
+          '您好！我是启明星AI教学助手。我可以帮助您进行教学分析、学生管理、课程优化、科研指导等。请告诉我您需要什么帮助？' :
+          '您好！我是启明星AI学习助手。我可以帮助您解答学习问题、制定学习计划、分析学习进度等。请告诉我您需要什么帮助？'
+        
         const welcomeMessage = {
           id: 'welcome-' + Date.now(),
           role: 'assistant' as const,
-          content: '您好！我是启明星AI学习助手。我可以帮助您解答学习问题、制定学习计划、分析学习进度等。请告诉我您需要什么帮助？',
+          content: welcomeContent,
           timestamp: new Date().toISOString()
         }
         setMessages([welcomeMessage])
@@ -162,8 +167,11 @@ export default function ChatPage() {
           metadata: {}
         })
 
-      // 调用学生AI智能体API
-      const response = await fetch('/api/ai/student', {
+      // 根据用户角色调用不同的AI智能体API
+      const userRole = user.user_metadata?.role || 'student'
+      const aiEndpoint = userRole === 'teacher' || userRole === 'admin' ? '/api/ai/teacher' : '/api/ai/student'
+      
+      const response = await fetch(aiEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -240,8 +248,12 @@ export default function ChatPage() {
                   <MessageCircle className="w-5 h-5 text-orange-600" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold text-gray-900">AI学习助手</h1>
-                  <p className="text-sm text-gray-500">智能学习问答与指导</p>
+                  <h1 className="text-xl font-bold text-gray-900">
+                    {(user.user_metadata?.role === 'teacher' || user.user_metadata?.role === 'admin') ? 'AI教学助手' : 'AI学习助手'}
+                  </h1>
+                  <p className="text-sm text-gray-500">
+                    {(user.user_metadata?.role === 'teacher' || user.user_metadata?.role === 'admin') ? '智能教学管理与指导' : '智能学习问答与指导'}
+                  </p>
                 </div>
               </div>
             </div>

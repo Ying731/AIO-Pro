@@ -197,6 +197,28 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
+
+          {/* 教师专属：教师管理中心 */}
+          {(role === 'teacher' || role === 'admin') && (
+            <div className="bg-white rounded-lg shadow-sm p-6 border hover:shadow-md transition-shadow">
+              <div className="flex items-center">
+                <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+                  <Users className="w-6 h-6 text-indigo-600" />
+                </div>
+                <div className="ml-4">
+                  <h3 className="text-lg font-medium text-gray-900">教师管理中心</h3>
+                  <p className="text-sm text-gray-500">管理学生、课程和教学数据</p>
+                </div>
+              </div>
+              <div className="mt-4">
+                <Link href="/teacher">
+                  <button className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 transition-colors">
+                    进入管理中心
+                  </button>
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 学生专属：目标管理 */}
