@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
         const { data: existingProfiles } = await supabaseAdmin
           .from('profiles')
           .select('*')
-          .eq('user_id', userId)
+          .eq('id', userId)
           .limit(1)
         
         if (existingProfiles && existingProfiles.length > 0) {
@@ -75,11 +75,10 @@ export async function GET(request: NextRequest) {
             .from('profiles')
             .insert([
               {
-                user_id: userId,
+                id: userId,
                 email: userData.email,
                 full_name: userData.user_metadata?.full_name || userData.email?.split('@')[0] || '用户',
-                role: userData.user_metadata?.role || 'student',
-                ...userData.user_metadata
+                role: userData.user_metadata?.role || 'student'
               }
             ])
             .select()
@@ -89,6 +88,50 @@ export async function GET(request: NextRequest) {
             // 即使档案创建失败，我们仍然允许用户登录
           } else {
             console.log('用户档案创建成功:', profile)
+            
+            // 创建角色相关记录
+            const userRole = userData.user_metadata?.role || 'student'
+            
+            if (userRole === 'student') {
+              const { error: studentError } = await supabaseAdmin
+                .from('students')
+                .insert([{
+                  user_id: userId,
+                  student_id: userData.user_metadata?.studentId || '',
+                  grade: parseInt(userData.user_metadata?.grade) || 1,
+                  major: userData.user_metadata?.major || '未指定专业',
+                  class_name: '',
+                  enrollment_year: new Date().getFullYear(),
+                  status: 'active',
+                  gpa: 0.0,
+                  total_credits: 0
+                }])
+              
+              if (studentError && !studentError.message?.includes('duplicate')) {
+                console.error('创建学生记录失败:', studentError)
+              } else {
+                console.log('学生记录创建成功')
+              }
+              
+            } else if (userRole === 'teacher') {
+              const { error: teacherError } = await supabaseAdmin
+                .from('teachers')
+                .insert([{
+                  user_id: userId,
+                  employee_id: userData.user_metadata?.employeeId || '',
+                  department: userData.user_metadata?.department || '未指定部门',
+                  title: userData.user_metadata?.title || '讲师',
+                  research_areas: [],
+                  office_location: '',
+                  contact_phone: ''
+                }])
+              
+              if (teacherError && !teacherError.message?.includes('duplicate')) {
+                console.error('创建教师记录失败:', teacherError)
+              } else {
+                console.log('教师记录创建成功')
+              }
+            }
           }
         }
         
