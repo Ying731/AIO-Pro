@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { CheckCircle, XCircle, Loader } from 'lucide-react'
 
-export default function SimpleAuthCallback() {
+export default function SuperSimpleAuthCallback() {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
   const [message, setMessage] = useState('')
   const router = useRouter()
@@ -28,54 +28,14 @@ export default function SimpleAuthCallback() {
         if (data.session && data.session.user) {
           console.log('验证成功，用户:', data.session.user.email)
           
-          // 创建用户档案
-          try {
-            // 使用绝对URL路径
-            const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
-            const apiUrl = `${baseUrl}/api/create-profile`
-            
-            console.log('使用API URL:', apiUrl)
-            
-            const profileResponse = await fetch(apiUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                userId: data.session.user.id,
-                email: data.session.user.email,
-                fullName: data.session.user.user_metadata?.full_name || data.session.user.email?.split('@')[0] || '用户',
-                role: data.session.user.user_metadata?.role || 'student',
-                ...data.session.user.user_metadata
-              })
-            })
-
-            if (profileResponse.ok) {
-              console.log('用户档案创建成功')
-              setStatus('success')
-              setMessage('邮箱验证成功！正在跳转到登录页面...')
-              
-              setTimeout(() => {
-                router.push('/?verified=true')
-              }, 2000)
-            } else {
-              console.log('用户档案创建失败，但验证成功')
-              setStatus('success')
-              setMessage('邮箱验证成功！正在跳转到登录页面...')
-              
-              setTimeout(() => {
-                router.push('/?verified=true')
-              }, 2000)
-            }
-          } catch (profileError) {
-            console.error('创建档案时出错:', profileError)
-            setStatus('success')
-            setMessage('邮箱验证成功！正在跳转到登录页面...')
-            
-            setTimeout(() => {
-              router.push('/?verified=true')
-            }, 2000)
-          }
+          // 不在客户端创建用户档案，直接显示成功
+          setStatus('success')
+          setMessage('邮箱验证成功！正在跳转到登录页面...')
+          
+          // 3秒后跳转到登录页面
+          setTimeout(() => {
+            router.push('/?verified=true')
+          }, 3000)
         } else {
           console.log('未找到有效会话')
           setStatus('error')

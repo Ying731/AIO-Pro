@@ -76,14 +76,14 @@ export async function POST(request: NextRequest) {
       
       console.log('使用的回调 URL:', `${appUrl}/auth/callback`)
       
-      // 使用 inviteUserByEmail 发送验证邮件，使用简化的回调页面
+      // 使用 inviteUserByEmail 发送验证邮件，使用超级简化的回调页面
       const { error: emailError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
         data: {
           full_name: fullName,
           role,
           ...otherData
         },
-        redirectTo: `${appUrl}/auth/callback/simple`
+        redirectTo: `${appUrl}/auth/callback/super-simple`
       })
 
       if (emailError) {
