@@ -75,8 +75,9 @@ function AuthCallbackContent() {
         if (token && !authSuccess) {
           console.log('尝试处理invite token...')
           try {
+            // 对于invite类型，直接使用token而不是token_hash
             const { data, error: verifyError } = await supabase.auth.verifyOtp({
-              token_hash: token,
+              token: token,
               type: 'invite'
             })
 
@@ -86,6 +87,21 @@ function AuthCallbackContent() {
               authSuccess = true
             } else {
               console.log('invite token验证失败:', verifyError)
+              // 如果invite验证失败，尝试作为email验证
+              try {
+                const { data: emailData, error: emailError } = await supabase.auth.verifyOtp({
+                  token: token,
+                  type: 'email'
+                })
+                
+                if (!emailError && emailData?.user) {
+                  console.log('使用email token验证成功')
+                  userData = emailData.user
+                  authSuccess = true
+                }
+              } catch (emailErr) {
+                console.log('email token处理异常:', emailErr)
+              }
             }
           } catch (err) {
             console.log('invite token处理异常:', err)

@@ -69,6 +69,13 @@ export async function POST(request: NextRequest) {
       userId = authData.user.id
       console.log('User created (email not confirmed):', userId)
 
+      // 获取正确的应用 URL
+      const appUrl = process.env.VERCEL_URL 
+        ? `https://${process.env.VERCEL_URL}` 
+        : process.env.APP_URL || 'http://localhost:3003'
+      
+      console.log('使用的回调 URL:', `${appUrl}/auth/callback`)
+      
       // 使用 inviteUserByEmail 发送验证邮件，这个方法更可靠
       const { error: emailError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
         data: {
@@ -76,7 +83,7 @@ export async function POST(request: NextRequest) {
           role,
           ...otherData
         },
-        redirectTo: `${process.env.APP_URL || 'http://localhost:3003'}/auth/callback`
+        redirectTo: `${appUrl}/auth/callback`
       })
 
       if (emailError) {
