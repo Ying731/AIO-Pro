@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { GraduationCap, CheckCircle } from 'lucide-react'
 import Link from 'next/link'
+import VersionDisplay from '@/components/VersionDisplay'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -137,6 +138,9 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
+      
+      {/* 版本显示组件 */}
+      <VersionDisplay />
     </div>
   )
 }
