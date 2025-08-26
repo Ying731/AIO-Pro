@@ -1,0 +1,321 @@
+{
+  "name": "Student AI Chat Assistant",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "student-ai-chat",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "webhook-main",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "student-ai-chat"
+    },
+    {
+      "parameters": {
+        "functionCode": "// 解析输入消息和用户信息\nconst webhookData = $input.first().json;\nconst message = webhookData.message || '';\nconst userId = webhookData.userId || '';\nconst conversationId = webhookData.conversationId || '';\n\n// 消息分类逻辑\nfunction classifyMessage(message) {\n  const msg = message.toLowerCase();\n  \n  // 学习查询关键词\n  if (msg.includes('成绩') || msg.includes('分数') || msg.includes('课程') || msg.includes('学分')) {\n    return 'learning_query';\n  }\n  \n  // 学习建议关键词\n  if (msg.includes('怎么学') || msg.includes('建议') || msg.includes('计划') || msg.includes('方法')) {\n    return 'learning_advice';\n  }\n  \n  // 知识问答关键词（编程、数学、专业课程）\n  if (msg.includes('什么是') || msg.includes('如何') || msg.includes('代码') || msg.includes('算法') || msg.includes('数据结构') || msg.includes('编程') || msg.includes('递归') || msg.includes('机器学习') || msg.includes('数据库')) {\n    return 'knowledge_qa';\n  }\n  \n  // 默认为一般对话\n  return 'general_chat';\n}\n\nconst messageType = classifyMessage(message);\n\nreturn {\n  message,\n  userId,\n  conversationId,\n  messageType,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "message-classifier",
+      "name": "消息分类",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition1",
+              "leftValue": "={{ $json.messageType }}",
+              "rightValue": "knowledge_qa",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-switch",
+      "name": "路由选择",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": "knowledge_documents",
+        "where": {
+          "conditions": [
+            {
+              "column": "content",
+              "operator": "ilike",
+              "value": "={{ '%' + $json.message + '%' }}"
+            }
+          ]
+        },
+        "limit": 3,
+        "sort": {
+          "values": [
+            {
+              "column": "created_at",
+              "direction": "DESC"
+            }
+          ]
+        }
+      },
+      "id": "rag-retrieval",
+      "name": "RAG知识检索",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [900, 200],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-credentials",
+          "name": "Supabase API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// 构建学生AI助手的专业提示词\nconst inputData = $input.first().json;\nconst knowledgeData = $input.all().length > 1 ? $input.all().slice(1) : [];\n\n// 基础系统提示词\nlet systemPrompt = `你是启明星学习平台的AI学习助手，专门为河北师范大学软件学院的学生提供学习支持。\n\n你的角色和特点：\n- 友好、耐心、专业的学习伙伴\n- 熟悉软件工程、计算机科学相关课程\n- 善于用简单易懂的方式解释复杂概念\n- 注重实践应用和代码示例\n\n你的能力：\n- 回答专业课程问题（数据结构、算法、编程语言、数据库等）\n- 提供学习方法建议和学习计划\n- 解答编程和技术问题\n- 提供代码示例和调试帮助\n\n回答要求：\n- 简洁明了，重点突出\n- 结合具体的学习情境和实例\n- 提供实用的建议和资源\n- 保持积极鼓励的语调\n- 如果涉及代码，请提供完整可运行的示例`;\n\n// 添加知识库上下文\nif (knowledgeData.length > 0) {\n  systemPrompt += '\\n\\n相关知识库内容：\\n';\n  knowledgeData.forEach((item, index) => {\n    if (item.json && item.json.title && item.json.content) {\n      systemPrompt += `${index + 1}. ${item.json.title}\\n${item.json.content}\\n\\n`;\n    }\n  });\n  systemPrompt += '请结合以上知识库内容回答用户问题。';\n}\n\n// 根据消息类型调整提示词\nswitch (inputData.messageType) {\n  case 'knowledge_qa':\n    systemPrompt += '\\n\\n用户正在咨询专业知识，请提供详细、准确的技术解答，包含概念解释、实际应用和代码示例。';\n    break;\n  case 'learning_advice':\n    systemPrompt += '\\n\\n用户需要学习建议，请提供具体可行的学习方法、时间规划和学习资源推荐。';\n    break;\n  case 'learning_query':\n    systemPrompt += '\\n\\n用户在询问学习相关信息，请提供准确的查询结果和建议。';\n    break;\n  default:\n    systemPrompt += '\\n\\n请以友好的方式回答用户的问题。';\n}\n\nreturn {\n  systemPrompt: systemPrompt,\n  userMessage: inputData.message,\n  userId: inputData.userId,\n  conversationId: inputData.conversationId,\n  messageType: inputData.messageType,\n  hasKnowledge: knowledgeData.length > 0\n};"
+      },
+      "id": "prepare-gemini-request",
+      "name": "准备Gemini请求",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.systemPrompt + '\\n\\n用户问题: ' + $json.userMessage + '\\n\\n请提供有帮助的回答：' }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [1340, 300],
+      "id": "ai-agent",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-1.5-flash",
+        "options": {
+          "temperature": 0.7,
+          "maxOutputTokens": 800,
+          "topP": 0.8,
+          "topK": 40
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [1340, 480],
+      "id": "gemini-chat-model",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "zTsZXEBOGaak4eW5",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// 处理AI助手响应并格式化输出\nconst aiResponse = $json;\nconst requestData = $('准备Gemini请求').first().json;\n\n// 提取AI响应文本\nlet responseText = '';\nif (typeof aiResponse === 'string') {\n  responseText = aiResponse;\n} else if (aiResponse.text) {\n  responseText = aiResponse.text;\n} else if (aiResponse.output) {\n  responseText = aiResponse.output;\n} else if (aiResponse.content) {\n  responseText = aiResponse.content;\n} else {\n  responseText = '抱歉，我无法理解您的问题，请重新描述。';\n}\n\n// 计算响应时间\nconst responseTime = Date.now() - new Date(requestData.timestamp || new Date()).getTime();\n\nreturn {\n  success: true,\n  response: responseText,\n  messageType: requestData.messageType,\n  userId: requestData.userId,\n  conversationId: requestData.conversationId,\n  originalMessage: requestData.userMessage,\n  hasKnowledge: requestData.hasKnowledge,\n  responseTime: Math.max(0, responseTime),\n  model: 'gemini-1.5-flash',\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "format-response",
+      "name": "格式化响应",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "chat_messages",
+        "data": {
+          "conversation_id": "={{ $json.conversationId }}",
+          "role": "user",
+          "content": "={{ $json.originalMessage }}",
+          "metadata": "={{ {messageType: $json.messageType, hasKnowledge: $json.hasKnowledge, model: $json.model} }}"
+        }
+      },
+      "id": "save-user-message",
+      "name": "保存用户消息",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1780, 200],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-credentials", 
+          "name": "Supabase API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "chat_messages",
+        "data": {
+          "conversation_id": "={{ $json.conversationId }}",
+          "role": "assistant",
+          "content": "={{ $json.response }}",
+          "metadata": "={{ {messageType: $json.messageType, hasKnowledge: $json.hasKnowledge, responseTime: $json.responseTime, model: $json.model} }}"
+        }
+      },
+      "id": "save-assistant-message",
+      "name": "保存AI响应",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1780, 400],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-credentials",
+          "name": "Supabase API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "id": "webhook-response",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2000, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "消息分类",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "消息分类": {
+      "main": [
+        [
+          {
+            "node": "路由选择",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "路由选择": {
+      "main": [
+        [
+          {
+            "node": "RAG知识检索",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "准备Gemini请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RAG知识检索": {
+      "main": [
+        [
+          {
+            "node": "准备Gemini请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "准备Gemini请求": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "格式化响应",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "格式化响应": {
+      "main": [
+        [
+          {
+            "node": "保存用户消息",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "保存AI响应",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

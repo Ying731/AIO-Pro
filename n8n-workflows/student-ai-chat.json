@@ -1,0 +1,401 @@
+{
+  "name": "学生AI聊天助手工作流 - Gemini版",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "c5f0b7a4-8b3a-4e5d-9c2f-1a2b3c4d5e6f",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "student-ai-chat"
+    },
+    {
+      "parameters": {
+        "functionCode": "// 解析输入消息和用户信息\nconst message = $json.message || '';\nconst userId = $json.userId || '';\nconst conversationId = $json.conversationId || '';\n\n// 消息分类逻辑\nfunction classifyMessage(message) {\n  const msg = message.toLowerCase();\n  \n  // 学习查询关键词\n  if (msg.includes('成绩') || msg.includes('分数') || msg.includes('课程') || msg.includes('学分')) {\n    return 'learning_query';\n  }\n  \n  // 学习建议关键词\n  if (msg.includes('怎么学') || msg.includes('建议') || msg.includes('计划') || msg.includes('方法')) {\n    return 'learning_advice';\n  }\n  \n  // 知识问答关键词（编程、数学、专业课程）\n  if (msg.includes('什么是') || msg.includes('如何') || msg.includes('代码') || msg.includes('算法') || msg.includes('数据结构')) {\n    return 'knowledge_qa';\n  }\n  \n  // 默认为一般对话\n  return 'general_chat';\n}\n\nconst messageType = classifyMessage(message);\n\nreturn {\n  message,\n  userId,\n  conversationId,\n  messageType,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6",
+      "name": "消息分类",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition1",
+              "leftValue": "={{ $json.messageType }}",
+              "rightValue": "knowledge_qa",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b2c3d4e5-6f7g-8h9i-0j1k-l2m3n4o5p6q7",
+      "name": "路由选择",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": "knowledge_documents",
+        "where": {
+          "conditions": [
+            {
+              "column": "content",
+              "operator": "ilike",
+              "value": "={{ '%' + $json.message + '%' }}"
+            }
+          ]
+        },
+        "limit": 3,
+        "sort": {
+          "values": [
+            {
+              "column": "created_at",
+              "direction": "DESC"
+            }
+          ]
+        }
+      },
+      "id": "c3d4e5f6-7g8h-9i0j-1k2l-m3n4o5p6q7r8",
+      "name": "RAG知识检索",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [900, 200],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-credentials",
+          "name": "Supabase API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": "students",
+        "where": {
+          "conditions": [
+            {
+              "column": "user_id",
+              "operator": "equals",
+              "value": "={{ $json.userId }}"
+            }
+          ]
+        }
+      },
+      "id": "d4e5f6g7-8h9i-0j1k-2l3m-n4o5p6q7r8s9",
+      "name": "获取学生信息",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [900, 300],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-credentials",
+          "name": "Supabase API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": "chat_messages",
+        "where": {
+          "conditions": [
+            {
+              "column": "conversation_id",
+              "operator": "equals",
+              "value": "={{ $json.conversationId }}"
+            }
+          ]
+        },
+        "limit": 10,
+        "sort": {
+          "values": [
+            {
+              "column": "created_at",
+              "direction": "DESC"
+            }
+          ]
+        }
+      },
+      "id": "e5f6g7h8-9i0j-1k2l-3m4n-o5p6q7r8s9t0",
+      "name": "获取对话历史",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [900, 400],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-credentials",
+          "name": "Supabase API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// 固定的测试提示词来验证Gemini API连接\n// 无论输入是什么，都返回一个明确的测试消息\n\nreturn {\n  prompt: '请回复：收到用户测试消息，Gemini API工作正常！',\n  userId: 'test-user',\n  conversationId: 'test-conv',\n  originalMessage: '测试消息',\n  messageType: 'test'\n};"
+      },
+      "id": "f6g7h8i9-0j1k-2l3m-4n5o-p6q7r8s9t0u1",
+      "name": "准备Gemini请求",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={{ $credentials.googleGeminiApi.apiKey }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleGeminiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "contents",
+              "value": "={{ [{\"parts\": [{\"text\": \"请回复：这是一个硬编码的测试消息，如果你看到这条消息，说明Gemini API连接正常！请回复收到！\"}]}] }}"
+            },
+            {
+              "name": "generationConfig",
+              "value": "={{ {\"temperature\": 0.7, \"maxOutputTokens\": 800, \"topP\": 0.8, \"topK\": 40} }}"
+            },
+            {
+              "name": "safetySettings",
+              "value": "={{ [{\"category\": \"HARM_CATEGORY_HARASSMENT\", \"threshold\": \"BLOCK_MEDIUM_AND_ABOVE\"}, {\"category\": \"HARM_CATEGORY_HATE_SPEECH\", \"threshold\": \"BLOCK_MEDIUM_AND_ABOVE\"}, {\"category\": \"HARM_CATEGORY_SEXUALLY_EXPLICIT\", \"threshold\": \"BLOCK_MEDIUM_AND_ABOVE\"}, {\"category\": \"HARM_CATEGORY_DANGEROUS_CONTENT\", \"threshold\": \"BLOCK_MEDIUM_AND_ABOVE\"}] }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "g7h8i9j0-1k2l-3m4n-5o6p-q7r8s9t0u1v2",
+      "name": "Gemini API调用",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1340, 300],
+      "credentials": {
+        "googleGeminiApi": {
+          "id": "gemini-credentials",
+          "name": "Google Gemini API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// 处理Gemini API响应\nconst geminiResponse = $json;\nconst requestData = $('准备Gemini请求').first().$json;\n\n// 检查响应是否成功\nif (!geminiResponse || !geminiResponse.candidates || !geminiResponse.candidates[0]) {\n  throw new Error('Gemini API响应格式错误或为空');\n}\n\n// 提取生成的文本\nconst generatedText = geminiResponse.candidates[0].content?.parts?.[0]?.text || '抱歉，我无法理解您的问题，请重新描述。';\n\n// 计算使用的token数（Gemini返回格式）\nconst tokensUsed = geminiResponse.usageMetadata ? \n  (geminiResponse.usageMetadata.promptTokenCount + geminiResponse.usageMetadata.candidatesTokenCount) : 0;\n\nreturn {\n  response: generatedText,\n  messageType: requestData.messageType,\n  userId: requestData.userId,\n  conversationId: requestData.conversationId,\n  originalMessage: requestData.originalMessage,\n  tokensUsed: tokensUsed,\n  model: 'gemini-1.5-flash-latest'\n};"
+      },
+      "id": "h8i9j0k1-2l3m-4n5o-6p7q-r8s9t0u1v2w3",
+      "name": "处理Gemini响应",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "chat_messages",
+        "data": {
+          "conversation_id": "={{ $json.conversationId }}",
+          "role": "user",
+          "content": "={{ $json.originalMessage }}",
+          "metadata": "={{ {messageType: $json.messageType, response: $json.response, model: $json.model} }}",
+          "tokens_used": "={{ $json.tokensUsed }}"
+        }
+      },
+      "id": "i9j0k1l2-3m4n-5o6p-7q8r-s9t0u1v2w3x4",
+      "name": "保存对话记录",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1780, 300],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-credentials",
+          "name": "Supabase API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// 返回最终响应\nconst processedData = $('处理Gemini响应').first().$json;\n\nreturn {\n  success: true,\n  response: processedData.response,\n  messageType: processedData.messageType,\n  userId: processedData.userId,\n  conversationId: processedData.conversationId,\n  tokensUsed: processedData.tokensUsed,\n  model: processedData.model,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "j0k1l2m3-4n5o-6p7q-8r9s-t0u1v2w3x4y5",
+      "name": "格式化最终响应",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [2000, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "消息分类",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "消息分类": {
+      "main": [
+        [
+          {
+            "node": "准备Gemini请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "路由选择": {
+      "main": [
+        [
+          {
+            "node": "RAG知识检索",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "获取学生信息",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "获取对话历史",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "获取学生信息",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "获取对话历史",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RAG知识检索": {
+      "main": [
+        [
+          {
+            "node": "准备Gemini请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "获取学生信息": {
+      "main": [
+        [
+          {
+            "node": "准备Gemini请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "获取对话历史": {
+      "main": [
+        [
+          {
+            "node": "准备Gemini请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "准备Gemini请求": {
+      "main": [
+        [
+          {
+            "node": "Gemini API调用",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini API调用": {
+      "main": [
+        [
+          {
+            "node": "处理Gemini响应",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "处理Gemini响应": {
+      "main": [
+        [
+          {
+            "node": "保存对话记录",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "保存对话记录": {
+      "main": [
+        [
+          {
+            "node": "格式化最终响应",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "student-ai-gemini-workflow"
+  },
+  "id": "student-ai-gemini-chat-workflow",
+  "tags": []
+}

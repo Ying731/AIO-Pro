@@ -1,0 +1,181 @@
+{
+  "name": "Gemini Chat Model Test",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gemini-test",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "webhook-test",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "gemini-test"
+    },
+    {
+      "parameters": {
+        "functionCode": "// 提取用户消息\nconst webhookData = $input.first().json;\nconst userMessage = webhookData.message || 'Hello, this is a test message';\n\nreturn {\n  message: userMessage,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "prepare-message",
+      "name": "Prepare Message",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "chat",
+        "messages": [
+          {
+            "role": "user",
+            "content": "={{ $json.message }}"
+          }
+        ]
+      },
+      "id": "chat-prompt",
+      "name": "Chat Prompt",
+      "type": "n8n-nodes-langchain.chainPrompt",
+      "typeVersion": 1,
+      "position": [560, 300]
+    },
+    {
+      "parameters": {
+        "model": "gemini-1.5-flash",
+        "options": {
+          "temperature": 0.7,
+          "maxOutputTokens": 200,
+          "topP": 0.8,
+          "topK": 40
+        }
+      },
+      "id": "gemini-chat",
+      "name": "Google Gemini Chat Model",
+      "type": "n8n-nodes-langchain.lmchatgooglegemini",
+      "typeVersion": 1,
+      "position": [680, 450],
+      "credentials": {
+        "googleAiApi": {
+          "id": "gemini-credentials",
+          "name": "Google AI API"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "basic-llm-chain",
+      "name": "Basic LLM Chain",
+      "type": "n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// 格式化LLM Chain响应\nconst llmResponse = $json;\nconst inputData = $('Prepare Message').first().json;\n\n// LLM Chain的响应通常直接是文本或在text字段中\nlet responseText = '';\nif (typeof llmResponse === 'string') {\n  responseText = llmResponse;\n} else if (llmResponse.text) {\n  responseText = llmResponse.text;\n} else if (llmResponse.output) {\n  responseText = llmResponse.output;\n} else {\n  responseText = JSON.stringify(llmResponse);\n}\n\nreturn {\n  success: true,\n  userMessage: inputData.message,\n  geminiResponse: responseText,\n  timestamp: new Date().toISOString(),\n  model: 'gemini-1.5-flash',\n  testStatus: 'Gemini Chat Model通过LangChain工作正常！',\n  rawResponse: llmResponse\n};"
+      },
+      "id": "format-response",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1020, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "id": "webhook-response",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1240, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Message": {
+      "main": [
+        [
+          {
+            "node": "Chat Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Prompt": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "prompt": [
+        [
+          {
+            "node": "Chat Prompt",
+            "type": "prompt",
+            "index": 0
+          }
+        ]
+      ],
+      "llm": [
+        [
+          {
+            "node": "Google Gemini Chat Model",
+            "type": "llm",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

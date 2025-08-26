@@ -1,293 +1,361 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false
-  }
-})
+// n8n Webhook URL
+const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 'https://n8n-ohuqvtxy.ap-southeast-1.clawcloudrun.com/webhook/student-ai-chat'
 
 export async function POST(request: NextRequest) {
   try {
     const { message, conversationId, userId } = await request.json()
 
-    // 获取用户档案信息
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single()
+    // 验证必要参数
+    if (!message || !userId) {
+      return NextResponse.json(
+        { success: false, error: '缺少必要参数' },
+        { status: 400 }
+      )
+    }
 
-    // 获取学生信息（如果是学生）
-    const { data: student } = await supabaseAdmin
-      .from('students')
-      .select('*')
-      .eq('user_id', userId)
-      .single()
+    // 准备发送给n8n工作流的数据
+    const workflowPayload = {
+      message: message.trim(),
+      userId,
+      conversationId: conversationId || `conv-${Date.now()}-${userId}`,
+      timestamp: new Date().toISOString()
+    }
 
-    // 获取对话历史
-    const { data: messageHistory } = await supabaseAdmin
-      .from('chat_messages')
-      .select('*')
-      .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: false })
-      .limit(10)
+    // 调用n8n工作流
+    const n8nResponse = await callN8nWorkflow(workflowPayload)
 
-    // 构建上下文
-    const context = buildStudentContext(profile, student, messageHistory || [])
-    
-    // 搜索相关知识库内容
-    const knowledgeResults = await searchKnowledgeBase(message, userId)
-    
-    // 生成AI响应
-    const aiResponse = await generateStudentAIResponse(message, context, knowledgeResults)
-
-    return NextResponse.json({
-      success: true,
-      response: aiResponse
-    })
+    if (n8nResponse.success) {
+      return NextResponse.json({
+        success: true,
+        response: n8nResponse.response,
+        messageType: n8nResponse.messageType,
+        conversationId: n8nResponse.conversationId,
+        tokensUsed: n8nResponse.tokensUsed
+      })
+    } else {
+      // n8n工作流调用失败，使用备用AI逻辑
+      console.warn('n8n workflow failed, using fallback response')
+      const fallbackResponse = await generateFallbackResponse(message, userId)
+      
+      return NextResponse.json({
+        success: true,
+        response: fallbackResponse,
+        messageType: 'fallback',
+        conversationId: workflowPayload.conversationId
+      })
+    }
 
   } catch (error) {
     console.error('Student AI API error:', error)
-    return NextResponse.json(
-      { error: '生成AI回复时出现错误' },
-      { status: 500 }
-    )
+    
+    // 如果完全失败，返回友好的错误消息
+    return NextResponse.json({
+      success: true, // 仍然返回success=true以避免前端错误
+      response: '抱歉，我暂时无法处理您的问题。请稍后再试，或者联系技术支持。',
+      messageType: 'error'
+    })
   }
 }
 
-function buildStudentContext(profile: any, student: any, messageHistory: any[]) {
-  const context = {
-    userName: profile?.full_name || '同学',
-    major: student?.major || '未知专业',
-    grade: student?.grade || 1,
-    gpa: student?.gpa || 0,
-    totalCredits: student?.total_credits || 0,
-    enrollmentYear: student?.enrollment_year || new Date().getFullYear(),
-    recentMessages: messageHistory?.slice(0, 5).reverse().map(msg => ({
-      role: msg.role,
-      content: msg.content
-    })) || []
-  }
-  
-  return context
-}
-
-async function searchKnowledgeBase(query: string, userId: string) {
+/**
+ * 调用n8n工作流
+ */
+async function callN8nWorkflow(payload: any) {
   try {
-    const response = await fetch(`${process.env.APP_URL || 'http://localhost:3003'}/api/knowledge`, {
+    const response = await fetch(N8N_WEBHOOK_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ query, userId })
+      body: JSON.stringify(payload),
+      // 设置超时时间
+      signal: AbortSignal.timeout(30000) // 30秒超时
     })
 
+    if (!response.ok) {
+      throw new Error(`n8n webhook responded with status: ${response.status}`)
+    }
+
     const data = await response.json()
-    return data.success ? data.results : []
+    return data
+
   } catch (error) {
-    console.error('Knowledge search error:', error)
-    return []
+    console.error('n8n workflow call failed:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }
   }
 }
 
-async function generateStudentAIResponse(message: string, context: any, knowledgeResults: any[] = []): Promise<string> {
-  // 这里实现AI逻辑，可以集成OpenAI、Claude或其他AI服务
-  // 目前使用智能模拟响应，结合知识库搜索结果
-  
-  const { userName, major, grade, gpa, totalCredits } = context
+/**
+ * 备用AI响应生成器
+ * 当n8n工作流不可用时使用 - 现在包含更智能的响应
+ */
+async function generateFallbackResponse(message: string, userId: string): Promise<string> {
   const lowerMessage = message.toLowerCase()
   
-  // 如果有知识库搜索结果，优先使用
-  if (knowledgeResults.length > 0) {
-    const topResult = knowledgeResults[0]
-    const knowledgeContent = `
+  // 检测编程和算法问题
+  if (lowerMessage.includes('递归') || lowerMessage.includes('recursion')) {
+    return `递归算法是一种自己调用自己的算法思想。
 
-📚 **相关知识参考：**
-**${topResult.title}**
-${topResult.content}
+📚 **递归的核心概念：**
+- **递归函数**：在函数体内调用自身的函数
+- **基本情况**：递归终止的条件
+- **递归情况**：函数调用自身的情况
 
-*来源：启明星知识库 - ${topResult.category}*
-
----
-
-基于以上知识和您的个人情况（${major}专业，${grade}年级，GPA: ${gpa.toFixed(2)}），我为您提供以下建议：`
-    
-    // 根据知识库内容生成更精准的回答
-    if (topResult.category === '学习方法') {
-      return knowledgeContent + `
-
-💡 **个性化学习建议：**
-- 结合您当前的学习进度调整学习计划
-- 根据专业特点选择最适合的学习策略
-- 定期评估学习效果并优化方法
-
-🎯 **实施建议：**
-- 从简单的技巧开始实践
-- 保持持续性，形成良好学习习惯
-- 根据效果及时调整方法
-
-需要我为您制定具体的学习计划吗？`
+💻 **JavaScript递归示例 - 阶乘计算：**
+\`\`\`javascript
+function factorial(n) {
+    // 基本情况：递归终止条件
+    if (n <= 1) {
+        return 1;
     }
-    
-    if (topResult.category === '课程指导') {
-      return knowledgeContent + `
-
-🎓 **针对您的情况：**
-- 当前已获得${totalCredits}学分，建议合理安排后续课程
-- 根据您的GPA表现，推荐选择适当难度的课程组合
-- 考虑专业发展方向，优先选择核心课程
-
-📋 **选课策略：**
-- 平衡必修课与选修课的比例
-- 关注课程的先修要求和课程序列
-- 考虑授课时间安排，避免冲突
-
-想了解具体某门课程的详细信息吗？`
-    }
-    
-    return knowledgeContent + `
-
-希望这些信息对您有帮助！如果还有其他问题，请随时询问。`
-  }
-  
-  // 原有的智能响应逻辑保持不变
-  // 学习规划相关
-  if (lowerMessage.includes('学习计划') || lowerMessage.includes('规划') || lowerMessage.includes('安排')) {
-    return `${userName}，根据您${major}专业${grade}年级的情况，我为您推荐以下学习规划：
-
-📚 **当前学期建议：**
-- 优先完成核心课程，确保GPA稳步提升（当前GPA: ${gpa.toFixed(2)}）
-- 结合专业方向，选择1-2门选修课扩展知识面
-- 参与实践项目，积累实际经验
-
-⏰ **时间安排：**
-- 每日学习2-3小时专业课程
-- 每周安排1-2次复习和总结
-- 保持规律作息，提高学习效率
-
-🎯 **学期目标：**
-- 本学期目标学分：${Math.max(15, 20 - totalCredits/10)}学分
-- GPA目标：${Math.min(4.0, gpa + 0.2).toFixed(1)}以上
-
-需要我为您制定更详细的学习计划吗？`
-  }
-  
-  // 课程咨询相关
-  if (lowerMessage.includes('课程') || lowerMessage.includes('选课') || lowerMessage.includes('学分')) {
-    return `关于课程选择，我来为您分析一下：
-
-📖 **专业课程建议：**
-- ${major}专业核心课程是基础，务必认真对待
-- 根据您当前${totalCredits}学分的情况，建议本学期选修${Math.max(12, 18 - totalCredits/10)}学分
-
-🔍 **选课策略：**
-- 平衡理论与实践课程比例
-- 考虑课程难度分布，避免过度集中
-- 关注授课教师评价和教学风格
-
-💡 **个性化推荐：**
-基于您的GPA ${gpa.toFixed(2)}，建议选择与您能力匹配的课程组合，既要挑战自己，又要确保学习质量。
-
-具体需要了解哪门课程的详细信息呢？`
-  }
-  
-  // 成绩分析相关
-  if (lowerMessage.includes('成绩') || lowerMessage.includes('gpa') || lowerMessage.includes('分析')) {
-    const gradeLevel = gpa >= 3.5 ? '优秀' : gpa >= 3.0 ? '良好' : gpa >= 2.5 ? '中等' : '需要加强'
-    return `让我为您分析一下学习成绩情况：
-
-📊 **成绩概况：**
-- 当前GPA：${gpa.toFixed(2)} (${gradeLevel}水平)
-- 已获得学分：${totalCredits}
-- 入学年份：${context.enrollmentYear}
-
-📈 **提升建议：**
-${gpa >= 3.5 ? 
-  '您的成绩表现优异！建议继续保持，可以考虑申请奖学金或参与更有挑战性的项目。' : 
-  gpa >= 3.0 ? 
-  '成绩表现良好，建议在保持现有优势的基础上，重点攻克薄弱科目。' :
-  '还有很大提升空间，建议制定详细的学习计划，必要时寻求学习帮助。'
+    // 递归情况：调用自身
+    return n * factorial(n - 1);
 }
 
-🎯 **具体行动：**
-- 分析各科成绩分布，找出薄弱环节
-- 制定针对性的复习和预习计划
-- 利用课余时间参与学习小组或寻求老师答疑
+console.log(factorial(5)); // 输出: 120
+\`\`\`
 
-需要我帮您制定具体的成绩提升计划吗？`
+🔄 **执行过程：**
+- factorial(5) = 5 × factorial(4)
+- factorial(4) = 4 × factorial(3)  
+- factorial(3) = 3 × factorial(2)
+- factorial(2) = 2 × factorial(1)
+- factorial(1) = 1 (基本情况)
+
+⚠️ **注意事项：**
+- 必须有明确的终止条件
+- 避免无限递归导致栈溢出
+- 递归深度不宜过大
+
+需要更多递归算法示例吗？`
   }
-  
-  // 职业规划相关
-  if (lowerMessage.includes('就业') || lowerMessage.includes('职业') || lowerMessage.includes('实习') || lowerMessage.includes('工作')) {
-    return `关于职业发展规划，让我为您提供一些建议：
 
-🚀 **${major}专业就业前景：**
-- 行业需求旺盛，就业机会丰富
-- 薪资水平相对较高，发展空间广阔
-- 技术更新快，需要持续学习
+  if (lowerMessage.includes('数据结构') || lowerMessage.includes('data structure')) {
+    return `数据结构是计算机科学的核心基础！
 
-📋 **能力建设建议：**
-- 扎实的专业基础知识
-- 良好的实践动手能力
-- 团队协作和沟通技能
-- 持续学习的能力
+📊 **常用数据结构：**
 
-🎯 **行动计划：**
-- ${grade <= 2 ? '重点打好专业基础，参与课程项目' : 
-     grade <= 3 ? '寻找实习机会，积累实际工作经验' : 
-     '准备求职材料，提升面试技能'}
-- 关注行业动态，了解最新技术趋势
-- 建立专业人脉，参与相关社团活动
+**1. 线性结构**
+- 数组 (Array): 连续内存，随机访问O(1)
+- 链表 (Linked List): 动态分配，插入删除灵活
+- 栈 (Stack): 后进先出 (LIFO)，用于函数调用、表达式求值
+- 队列 (Queue): 先进先出 (FIFO)，用于BFS、任务调度
 
-需要我为您推荐一些具体的实习机会或职业发展路径吗？`
+**2. 非线性结构**  
+- 树 (Tree): 分层结构，二叉树、AVL树、B树
+- 图 (Graph): 顶点和边，用于网络、路径问题
+- 哈希表 (Hash Table): 快速查找，平均O(1)复杂度
+
+💡 **学习建议：**
+1. 先理解概念和应用场景
+2. 掌握基本操作的时间复杂度
+3. 动手实现各种数据结构
+4. 练习相关算法题
+
+你想深入了解哪种数据结构呢？`
   }
-  
-  // 心理支持和动机激励
-  if (lowerMessage.includes('压力') || lowerMessage.includes('焦虑') || lowerMessage.includes('困难') || lowerMessage.includes('迷茫')) {
-    return `我理解您现在的感受，学习过程中遇到困难是很正常的。
 
-💪 **情绪调节建议：**
-- 将大目标分解为小目标，逐步完成
-- 定期总结自己的进步和成就
-- 保持适度运动，有助于缓解压力
+  if (lowerMessage.includes('算法复杂度') || lowerMessage.includes('时间复杂度') || lowerMessage.includes('空间复杂度')) {
+    return `算法复杂度分析是算法学习的重要基础！
 
-🤝 **寻求帮助：**
-- 与同学、朋友分享你的困扰
-- 主动向老师请教学习方法
-- 学校心理咨询中心提供专业支持
+⏰ **时间复杂度 (Big O)：**
+- **O(1)**: 常数时间 - 数组随机访问
+- **O(log n)**: 对数时间 - 二分查找
+- **O(n)**: 线性时间 - 遍历数组
+- **O(n log n)**: - 归并排序、快速排序
+- **O(n²)**: 平方时间 - 冒泡排序、选择排序
+- **O(2ⁿ)**: 指数时间 - 斐波那契递归
 
-🌟 **积极心态：**
-作为${major}专业${grade}年级的学生，您已经在学习路上走过了一段路程。每个人都有自己的节奏，重要的是不断前进。
+💾 **空间复杂度：**
+- 算法执行过程中所需的额外存储空间
+- 不包括输入数据本身占用的空间
+- 考虑递归调用栈、辅助数组等
 
-记住，困难是成长的机会，您并不孤单。我会一直在这里支持您！
+📈 **分析方法：**
+1. 找出基本操作（比较、赋值等）
+2. 计算基本操作执行次数
+3. 用Big O表示增长趋势
+4. 考虑最坏情况
 
-想聊聊具体是什么让您感到困扰吗？`
+🎯 **优化策略：**
+- 选择合适的数据结构
+- 减少不必要的嵌套循环
+- 使用更高效的算法
+- 空间换时间或时间换空间
+
+需要分析具体算法的复杂度吗？`
   }
-  
-  // 默认智能响应
-  const responses = [
-    `${userName}，这是个很好的问题！基于您${major}专业的背景，我建议您可以从以下几个角度来思考...`,
-    `作为${grade}年级的学生，您提出的这个问题很有深度。让我结合您的学习情况来分析...`,
-    `我理解您的疑问。根据您当前的学习进度和专业特点，我认为...`,
-    `这个问题涉及到${major}专业的核心内容。基于您的GPA ${gpa.toFixed(2)}的学习表现，我建议...`,
-    `很高兴为您解答！结合您的学习目标和当前情况，让我为您提供一些个性化建议...`
-  ]
-  
-  const baseResponse = responses[Math.floor(Math.random() * responses.length)]
-  
-  return `${baseResponse}
 
-如果您需要更具体的帮助，请告诉我您想了解的具体方面，比如：
-• 学习方法和技巧
-• 课程选择建议  
-• 成绩提升策略
-• 职业规划指导
-• 时间管理建议
+  if (lowerMessage.includes('javascript') || lowerMessage.includes('js') || lowerMessage.includes('前端')) {
+    return `JavaScript编程学习指导！
 
-我会根据您的具体需求提供更详细的指导！`
+🚀 **JavaScript核心概念：**
+
+**1. 变量和作用域**
+- var、let、const的区别
+- 函数作用域 vs 块级作用域
+- 变量提升 (Hoisting)
+
+**2. 函数和闭包**
+\`\`\`javascript
+// 闭包示例
+function createCounter() {
+    let count = 0;
+    return function() {
+        return ++count;
+    };
+}
+const counter = createCounter();
+console.log(counter()); // 1
+console.log(counter()); // 2
+\`\`\`
+
+**3. 异步编程**
+- Promise和async/await
+- 事件循环机制
+- 回调地狱的解决方案
+
+**4. ES6+新特性**
+- 箭头函数、模板字符串
+- 解构赋值、展开运算符
+- 类和模块系统
+
+💻 **学习路径建议：**
+1. 掌握基础语法和概念
+2. 理解DOM操作和事件处理
+3. 学习现代框架 (React/Vue)
+4. 了解Node.js后端开发
+
+你在JavaScript的哪个部分遇到困难？`
+  }
+
+  if (lowerMessage.includes('机器学习') || lowerMessage.includes('machine learning') || lowerMessage.includes('ai')) {
+    return `机器学习入门指导！
+
+🤖 **机器学习三大类型：**
+
+**1. 监督学习 (Supervised Learning)**
+- 有标签数据训练
+- 分类问题：垃圾邮件检测、图像识别
+- 回归问题：房价预测、股票预测
+- 算法：线性回归、决策树、SVM、神经网络
+
+**2. 无监督学习 (Unsupervised Learning)**  
+- 无标签数据，发现隐藏模式
+- 聚类：客户分群、商品推荐
+- 降维：数据可视化、特征提取
+- 算法：K-means、PCA、自编码器
+
+**3. 强化学习 (Reinforcement Learning)**
+- 通过试错学习最优策略
+- 游戏AI、自动驾驶、机器人控制
+- 算法：Q-learning、深度Q网络
+
+📊 **学习路径：**
+1. **数学基础**: 线性代数、概率统计、微积分
+2. **编程技能**: Python、NumPy、Pandas
+3. **经典算法**: 从线性回归开始
+4. **实践项目**: Kaggle竞赛、开源数据集
+
+🛠️ **推荐工具：**
+- Python: scikit-learn, TensorFlow, PyTorch
+- 在线平台: Jupyter Notebook, Google Colab
+
+想了解哪个具体方向呢？`
+  }
+
+  if (lowerMessage.includes('数据库') || lowerMessage.includes('database') || lowerMessage.includes('sql')) {
+    return `数据库设计与SQL学习指导！
+
+🗄️ **数据库基础概念：**
+
+**1. 关系数据库理论**
+- 实体-关系模型 (ER图)
+- 主键、外键、索引
+- 数据库范式 (1NF, 2NF, 3NF)
+
+**2. SQL核心语法**
+\`\`\`sql
+-- 查询示例
+SELECT s.name, c.course_name, e.grade
+FROM students s
+JOIN enrollments e ON s.id = e.student_id  
+JOIN courses c ON e.course_id = c.id
+WHERE e.grade >= 80
+ORDER BY e.grade DESC;
+\`\`\`
+
+**3. 高级特性**
+- 视图 (Views)
+- 存储过程和函数
+- 触发器 (Triggers)
+- 事务处理 (ACID)
+
+📊 **性能优化：**
+- 合理设计索引
+- 查询语句优化
+- 数据库分区
+- 读写分离
+
+💡 **学习建议：**
+1. 先掌握基本的增删改查
+2. 理解表关联和子查询
+3. 学习数据库设计原则
+4. 练习复杂查询和优化
+
+你在数据库的哪个方面需要帮助？`
+  }
+
+  // 问候语回复
+  if (lowerMessage.includes('你好') || lowerMessage.includes('hi') || lowerMessage.includes('hello')) {
+    return `你好！我是启明星AI学习助手 🌟
+
+我可以帮助您解决以下学习问题：
+
+📚 **课程相关**
+- 数据结构与算法
+- 编程语言 (JavaScript, Python, Java等)
+- 数据库原理与设计
+- 机器学习基础
+- 软件工程方法
+
+💡 **学习支持**  
+- 概念解释和代码示例
+- 算法复杂度分析
+- 学习方法建议
+- 问题调试帮助
+
+🎯 **使用建议**
+请尽量描述具体问题，比如：
+"请解释递归算法的工作原理"
+"JavaScript闭包是什么？"
+"如何优化数据库查询性能？"
+
+请告诉我您需要什么帮助吧！`
+  }
+
+  // 默认智能回复
+  return `感谢您使用启明星AI学习助手！🌟
+
+我注意到您的问题，虽然我目前还在学习更好地理解各种提问方式，但我可以帮助您解决：
+
+🔥 **热门学习主题：**
+- **递归算法** - 概念解释和代码示例
+- **数据结构** - 数组、链表、栈、队列、树等
+- **JavaScript编程** - 基础语法到高级特性
+- **机器学习** - 算法原理和实践应用  
+- **数据库设计** - SQL查询和优化技巧
+- **算法复杂度** - 时间和空间复杂度分析
+
+💡 **提问小贴士：**
+- 使用关键词：如"递归"、"数据结构"、"JavaScript"
+- 描述具体场景：如"我在学习二叉树遍历时遇到困难"
+- 提供代码片段：如果有相关代码或错误信息
+
+请重新描述您的问题，我会为您提供更精准的帮助！`
 }
