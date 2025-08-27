@@ -1,0 +1,514 @@
+{
+  "name": "学生AI助手-增强记忆版",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "student-ai-chat",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "webhook-main",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [-1900, 120],
+      "webhookId": "student-ai-chat"
+    },
+    {
+      "parameters": {
+        "functionCode": "// 解析输入消息和用户信息\nconst webhookData = $input.first().json;\n\n// 提取基本信息\nlet message = '';\nlet userId = '';\nlet conversationId = '';\n\nif (webhookData.body) {\n  message = webhookData.body.message || '';\n  userId = webhookData.body.userId || '';\n  conversationId = webhookData.body.conversationId || '';\n} else {\n  message = webhookData.message || '';\n  userId = webhookData.userId || '';\n  conversationId = webhookData.conversationId || '';\n}\n\n// 消息分类逻辑\nfunction classifyMessage(message) {\n  const msg = (message || '').toLowerCase();\n  if (msg.includes('成绩') || msg.includes('分数') || msg.includes('课程') || msg.includes('学分')) {\n    return 'learning_query';\n  }\n  if (msg.includes('怎么学') || msg.includes('建议') || msg.includes('计划') || msg.includes('方法')) {\n    return 'learning_advice';\n  }\n  if (msg.includes('什么是') || msg.includes('如何') || msg.includes('代码') || msg.includes('算法') || msg.includes('数据结构') || msg.includes('编程') || msg.includes('递归') || msg.includes('机器学习') || msg.includes('数据库')) {\n    return 'knowledge_qa';\n  }\n  return 'general_chat';\n}\n\nconst messageType = classifyMessage(message);\n\nreturn {\n  message: message,\n  userId: userId,\n  conversationId: conversationId,\n  messageType: messageType,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "message-classifier",
+      "name": "消息分类",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [-1680, 120]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "ai_agent_states",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "user_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.userId }}"
+            },
+            {
+              "keyName": "agent_type",
+              "condition": "eq",
+              "keyValue": "student"
+            }
+          ]
+        }
+      },
+      "id": "get-user-memory",
+      "name": "获取用户记忆",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [-1460, 120],
+      "credentials": {
+        "supabaseApi": {
+          "id": "WWm7t7sYsipMoQ2k",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "chat_messages",
+        "limit": 10,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "conversation_id",
+              "condition": "eq", 
+              "keyValue": "={{ $('消息分类').first().json.conversationId }}"
+            }
+          ]
+        },
+        "sort": {
+          "values": [
+            {
+              "column": "created_at",
+              "direction": "DESC"
+            }
+          ]
+        }
+      },
+      "id": "get-chat-history",
+      "name": "获取对话历史",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [-1240, 120],
+      "credentials": {
+        "supabaseApi": {
+          "id": "WWm7t7sYsipMoQ2k",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "students",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "user_id",
+              "condition": "eq",
+              "keyValue": "={{ $('消息分类').first().json.userId }}"
+            }
+          ]
+        }
+      },
+      "id": "get-student-profile",
+      "name": "获取学生档案",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [-1020, 120],
+      "credentials": {
+        "supabaseApi": {
+          "id": "WWm7t7sYsipMoQ2k",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $('消息分类').first().json.messageType }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "knowledge_qa"
+            },
+            {
+              "value2": "learning_query"
+            },
+            {
+              "value2": "learning_advice"
+            }
+          ]
+        },
+        "fallbackOutput": 1
+      },
+      "id": "route-switch",
+      "name": "路由选择",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [-800, 120]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "knowledge_documents",
+        "limit": 3,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "content",
+              "condition": "ilike",
+              "keyValue": "={{ '%' + $('消息分类').first().json.message + '%' }}"
+            }
+          ]
+        }
+      },
+      "id": "rag-retrieval",
+      "name": "RAG知识检索",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [-580, 20],
+      "credentials": {
+        "supabaseApi": {
+          "id": "WWm7t7sYsipMoQ2k",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// 增强的提示词构建，整合记忆和上下文\nconst inputData = $('消息分类').first().json;\nconst knowledgeData = $input.all().filter(item => \n  item.json && item.json.title && item.json.content\n);\n\n// 获取用户记忆数据\nconst userMemoryData = $('获取用户记忆').all();\nconst chatHistoryData = $('获取对话历史').all();\nconst studentProfileData = $('获取学生档案').all();\n\n// 解析用户记忆\nlet userMemory = {};\nlet userPreferences = {};\nif (userMemoryData.length > 0 && userMemoryData[0].json) {\n  userMemory = userMemoryData[0].json.memory_context || {};\n  userPreferences = userMemoryData[0].json.preferences || {};\n}\n\n// 解析学生档案\nlet studentInfo = {};\nif (studentProfileData.length > 0 && studentProfileData[0].json) {\n  studentInfo = studentProfileData[0].json;\n}\n\n// 构建对话历史摘要\nlet conversationHistory = '';\nif (chatHistoryData.length > 0) {\n  const recentMessages = chatHistoryData\n    .slice(0, 6) // 最近3轮对话\n    .reverse() // 按时间正序\n    .map(item => `${item.json.role}: ${item.json.content.substring(0, 100)}...`)\n    .join('\\n');\n  conversationHistory = `\\n\\n最近对话历史：\\n${recentMessages}`;\n}\n\n// 基础系统提示词\nlet systemPrompt = `你是启明星学习平台的AI学习助手，专门为河北师范大学软件学院的学生提供个性化学习支持。\n\n你的角色和特点：\n- 友好、耐心、专业的学习伙伴\n- 具有记忆能力，能记住学生的学习进度和困难点\n- 熟悉软件工程、计算机科学相关课程\n- 善于用简单易懂的方式解释复杂概念\n- 注重实践应用和代码示例`;\n\n// 添加学生个人信息\nif (studentInfo.major) {\n  systemPrompt += `\\n\\n当前学生信息：\n- 专业：${studentInfo.major}\n- 年级：${studentInfo.grade}年级\n- GPA：${studentInfo.gpa || '未知'}`;\n}\n\n// 添加用户记忆上下文\nif (userMemory.recent_topics && userMemory.recent_topics.length > 0) {\n  systemPrompt += `\\n\\n学生最近关注的话题：${userMemory.recent_topics.join(', ')}`;\n}\nif (userMemory.learning_focus) {\n  systemPrompt += `\\n当前学习重点：${userMemory.learning_focus}`;\n}\nif (userMemory.knowledge_gaps && userMemory.knowledge_gaps.length > 0) {\n  systemPrompt += `\\n需要加强的知识点：${userMemory.knowledge_gaps.join(', ')}`;\n}\n\n// 添加学习偏好\nif (userPreferences.learning_style) {\n  systemPrompt += `\\n学生偏好的学习方式：${userPreferences.learning_style}`;\n}\nif (userPreferences.response_length) {\n  systemPrompt += `\\n偏好的回答详细程度：${userPreferences.response_length}`;\n}\n\n// 添加知识库上下文\nif (knowledgeData.length > 0) {\n  systemPrompt += '\\n\\n相关知识库内容：\\n';\n  knowledgeData.forEach((item, index) => {\n    systemPrompt += `${index + 1}. ${item.json.title}\\n${item.json.content}\\n\\n`;\n  });\n  systemPrompt += '请结合以上知识库内容和学生的学习背景回答问题。';\n}\n\n// 添加对话历史\nif (conversationHistory) {\n  systemPrompt += conversationHistory;\n  systemPrompt += '\\n\\n请基于以上对话历史，提供连贯和个性化的回答。如果是继续之前的话题，请主动关联之前的讨论内容。';\n}\n\n// 根据消息类型调整提示词\nconst messageType = inputData.messageType || 'general_chat';\nswitch (messageType) {\n  case 'knowledge_qa':\n    systemPrompt += '\\n\\n用户正在咨询专业知识，请结合其学习背景提供详细、准确的技术解答，包含概念解释、实际应用和代码示例。';\n    break;\n  case 'learning_advice':\n    systemPrompt += '\\n\\n用户需要学习建议，请基于其个人档案和学习历史，提供具体可行的学习方法、时间规划和学习资源推荐。';\n    break;\n  case 'learning_query':\n    systemPrompt += '\\n\\n用户在询问学习相关信息，请结合其学习背景提供准确的查询结果和建议。';\n    break;\n  default:\n    systemPrompt += '\\n\\n请以友好、个性化的方式回答用户的问题，展现出你对学生学习情况的了解。';\n}\n\nreturn {\n  systemPrompt: systemPrompt,\n  userMessage: inputData.message || 'No message provided',\n  userId: inputData.userId || 'unknown',\n  conversationId: inputData.conversationId || 'default-id',\n  messageType: messageType,\n  hasKnowledge: knowledgeData.length > 0,\n  hasMemory: Object.keys(userMemory).length > 0,\n  hasHistory: chatHistoryData.length > 0,\n  currentMemory: userMemory,\n  timestamp: inputData.timestamp\n};"
+      },
+      "id": "enhanced-prompt-builder",
+      "name": "增强提示词构建",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [-360, 120]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.systemPrompt + '\\n\\n用户问题: ' + $json.userMessage + '\\n\\n请提供有帮助的个性化回答：' }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [-140, 120],
+      "id": "ai-agent",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-1.5-flash",
+        "options": {
+          "maxOutputTokens": 1000,
+          "temperature": 0.7,
+          "topK": 40,
+          "topP": 0.8
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [-140, 300],
+      "id": "gemini-chat-model",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "zTsZXEBOGaak4eW5",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// 处理AI响应并更新记忆\nconst aiResponse = $json;\nconst requestData = $('增强提示词构建').first().json;\nconst inputData = $('消息分类').first().json;\n\n// 提取AI响应文本\nlet responseText = '';\nif (typeof aiResponse === 'string') {\n  responseText = aiResponse;\n} else if (aiResponse.text) {\n  responseText = aiResponse.text;\n} else if (aiResponse.output) {\n  responseText = aiResponse.output;\n} else if (aiResponse.content) {\n  responseText = aiResponse.content;\n} else {\n  responseText = '抱歉，我无法理解您的问题，请重新描述。';\n}\n\n// 分析当前消息以更新记忆\nconst currentMessage = inputData.message.toLowerCase();\nconst currentMemory = requestData.currentMemory || {};\n\n// 提取话题关键词\nfunction extractTopics(message) {\n  const topics = [];\n  const keywords = {\n    '数据结构': ['数据结构', '链表', '栈', '队列', '树', '图'],\n    '算法': ['算法', '排序', '查找', '递归', '动态规划'],\n    '编程': ['编程', 'java', 'python', 'javascript', 'c++'],\n    '数据库': ['数据库', 'sql', 'mysql', '数据库设计'],\n    '机器学习': ['机器学习', 'ai', '人工智能', '深度学习']\n  };\n  \n  for (const [topic, words] of Object.entries(keywords)) {\n    if (words.some(word => message.includes(word))) {\n      topics.push(topic);\n    }\n  }\n  return topics;\n}\n\nconst newTopics = extractTopics(currentMessage);\n\n// 更新记忆上下文\nconst updatedMemory = {\n  recent_topics: [...new Set([...newTopics, ...(currentMemory.recent_topics || [])].slice(0, 5))],\n  learning_focus: newTopics.length > 0 ? newTopics[0] : currentMemory.learning_focus,\n  last_questions: [\n    inputData.message,\n    ...(currentMemory.last_questions || []).slice(0, 4)\n  ],\n  difficulty_level: currentMemory.difficulty_level || 'intermediate',\n  knowledge_gaps: currentMemory.knowledge_gaps || [],\n  interaction_summary: `学生最近询问了${newTopics.join('、')}相关问题`,\n  last_interaction_time: new Date().toISOString()\n};\n\n// 计算响应时间\nconst responseTime = Date.now() - new Date(requestData.timestamp || new Date()).getTime();\n\nreturn {\n  success: true,\n  response: responseText,\n  messageType: requestData.messageType,\n  userId: requestData.userId,\n  conversationId: requestData.conversationId,\n  originalMessage: requestData.userMessage,\n  hasKnowledge: requestData.hasKnowledge,\n  hasMemory: requestData.hasMemory,\n  responseTime: Math.max(0, responseTime),\n  model: 'gemini-1.5-flash',\n  timestamp: new Date().toISOString(),\n  updatedMemory: updatedMemory,\n  newTopics: newTopics\n};"
+      },
+      "id": "format-and-analyze",
+      "name": "格式化响应和分析",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [80, 120]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "ai_agent_states",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "user_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.userId }}"
+            },
+            {
+              "keyName": "agent_type",
+              "condition": "eq", 
+              "keyValue": "student"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "memory_context",
+              "fieldValue": "={{ $json.updatedMemory }}"
+            },
+            {
+              "fieldId": "last_interaction",
+              "fieldValue": "={{ $json.timestamp }}"
+            },
+            {
+              "fieldId": "interaction_count",
+              "fieldValue": "={{ ($('获取用户记忆').first().json?.interaction_count || 0) + 1 }}"
+            }
+          ]
+        }
+      },
+      "id": "update-memory",
+      "name": "更新用户记忆",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [300, 0],
+      "credentials": {
+        "supabaseApi": {
+          "id": "WWm7t7sYsipMoQ2k",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "chat_messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "conversation_id",
+              "fieldValue": "={{ $json.conversationId }}"
+            },
+            {
+              "fieldId": "role",
+              "fieldValue": "user"
+            },
+            {
+              "fieldId": "content",
+              "fieldValue": "={{ $json.originalMessage }}"
+            },
+            {
+              "fieldId": "metadata",
+              "fieldValue": "={{ {messageType: $json.messageType, hasKnowledge: $json.hasKnowledge, model: $json.model, topics: $json.newTopics} }}"
+            }
+          ]
+        }
+      },
+      "id": "save-user-message",
+      "name": "保存用户消息",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [300, 120],
+      "credentials": {
+        "supabaseApi": {
+          "id": "WWm7t7sYsipMoQ2k",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "chat_messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "conversation_id",
+              "fieldValue": "={{ $json.conversationId }}"
+            },
+            {
+              "fieldId": "role",
+              "fieldValue": "assistant"
+            },
+            {
+              "fieldId": "content",
+              "fieldValue": "={{ $json.response }}"
+            },
+            {
+              "fieldId": "metadata",
+              "fieldValue": "={{ {messageType: $json.messageType, hasKnowledge: $json.hasKnowledge, hasMemory: $json.hasMemory, responseTime: $json.responseTime, model: $json.model} }}"
+            }
+          ]
+        }
+      },
+      "id": "save-ai-response",
+      "name": "保存AI响应",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [300, 240],
+      "credentials": {
+        "supabaseApi": {
+          "id": "WWm7t7sYsipMoQ2k",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "webhook-response",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [520, 120]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "消息分类",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "消息分类": {
+      "main": [
+        [
+          {
+            "node": "获取用户记忆",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "获取用户记忆": {
+      "main": [
+        [
+          {
+            "node": "获取对话历史",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "获取对话历史": {
+      "main": [
+        [
+          {
+            "node": "获取学生档案",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "获取学生档案": {
+      "main": [
+        [
+          {
+            "node": "路由选择",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "路由选择": {
+      "main": [
+        [
+          {
+            "node": "RAG知识检索",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "增强提示词构建",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RAG知识检索": {
+      "main": [
+        [
+          {
+            "node": "增强提示词构建",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "增强提示词构建": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "格式化响应和分析",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "格式化响应和分析": {
+      "main": [
+        [
+          {
+            "node": "更新用户记忆",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "保存用户消息",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "保存AI响应",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

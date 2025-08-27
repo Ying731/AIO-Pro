@@ -1,8 +1,8 @@
 // 版本管理配置
 export const VERSION_CONFIG = {
-  current: "v0.1.0",
+  current: "v0.2.0",
   name: "启明星学习平台",
-  buildDate: "2025-01-25"
+  buildDate: "2025-08-27"
 }
 
 // 更新记录数据类型
@@ -17,6 +17,31 @@ export interface UpdateRecord {
 
 // 项目开发历史记录
 export const UPDATE_HISTORY: UpdateRecord[] = [
+  {
+    version: "v0.2.0",
+    date: "2025-08-27",
+    type: "feature",
+    title: "学生AI助手智能记忆系统",
+    description: [
+      "集成n8n工作流与Google Gemini API构建智能对话系统",
+      "实现RAG知识检索和关键词智能分类路由",
+      "完成用户记忆上下文和对话历史管理",
+      "添加个性化学习建议和多轮对话理解",
+      "构建容错机制和备用回复系统"
+    ],
+    todos: [
+      "✅ n8n工作流设计和Gemini API集成",
+      "✅ 消息分类和关键词提取功能",
+      "✅ RAG知识检索系统实现",
+      "✅ 用户记忆和学习偏好存储",
+      "✅ 对话历史和上下文管理",
+      "✅ 增强提示词构建和个性化回复",
+      "✅ 错误处理和重试机制优化",
+      "✅ 前端API连接和超时管理",
+      "✅ 数据库UUID类型和查询优化",
+      "✅ 记忆功能端到端测试验证"
+    ]
+  },
   {
     version: "v0.1.0",
     date: "2025-01-25",
@@ -39,7 +64,7 @@ export const UPDATE_HISTORY: UpdateRecord[] = [
       "✅ 邮箱验证功能",
       "✅ 目标管理组件（GoalManager）",
       "✅ TypeScript错误修复",
-      "🔄 版本管理和更新记录系统（进行中）"
+      "✅ 版本管理和更新记录系统"
     ]
   }
 ]

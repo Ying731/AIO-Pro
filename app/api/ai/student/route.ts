@@ -60,33 +60,71 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * 调用n8n工作流
+ * 调用n8n工作流 - 增强版本
  */
 async function callN8nWorkflow(payload: any) {
-  try {
-    const response = await fetch(N8N_WEBHOOK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-      // 设置超时时间
-      signal: AbortSignal.timeout(30000) // 30秒超时
-    })
+  const maxRetries = 2
+  let lastError: Error | null = null
 
-    if (!response.ok) {
-      throw new Error(`n8n webhook responded with status: ${response.status}`)
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`n8n workflow attempt ${attempt}/${maxRetries}:`, {
+        url: N8N_WEBHOOK_URL,
+        payload: JSON.stringify(payload).substring(0, 100) + '...'
+      })
+
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 15000) // 15秒超时
+
+      const response = await fetch(N8N_WEBHOOK_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      })
+
+      clearTimeout(timeout)
+
+      console.log(`n8n response status: ${response.status}, ok: ${response.ok}`)
+
+      if (!response.ok) {
+        throw new Error(`n8n webhook responded with status: ${response.status}`)
+      }
+
+      // 检查响应是否有内容
+      const responseText = await response.text()
+      console.log(`n8n response length: ${responseText.length}`)
+      
+      if (!responseText || responseText.trim() === '') {
+        throw new Error('n8n returned empty response')
+      }
+
+      const data = JSON.parse(responseText)
+      console.log('n8n workflow success:', {
+        success: data.success,
+        hasResponse: !!data.response,
+        messageType: data.messageType
+      })
+
+      return data
+
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+      console.error(`n8n workflow attempt ${attempt} failed:`, lastError.message)
+      
+      // 如果不是最后一次尝试，等待1秒后重试
+      if (attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
     }
+  }
 
-    const data = await response.json()
-    return data
-
-  } catch (error) {
-    console.error('n8n workflow call failed:', error)
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    }
+  console.error('n8n workflow failed after all retries:', lastError?.message)
+  return {
+    success: false,
+    error: lastError?.message || 'Unknown error'
   }
 }
 
