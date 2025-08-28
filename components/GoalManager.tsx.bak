@@ -5,12 +5,6 @@ import { supabase } from '@/lib/supabase'
 import { Target, Plus, CheckCircle, Clock, AlertCircle, Edit, Trash2, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 
-interface KeyResult {
-  text: string
-  progress: number
-  completed: boolean
-}
-
 interface Goal {
   id: string
   title: string
@@ -21,7 +15,6 @@ interface Goal {
   progress: number
   target_date: string | null
   completion_date: string | null
-  key_results: KeyResult[]
   created_at: string
   updated_at: string
 }
@@ -219,7 +212,7 @@ export default function GoalManager() {
   const filteredGoals = goals.filter(goal => {
     switch (filter) {
       case 'active':
-        return goal.status === 'in_progress'
+        return goal.status === 'in_progress' || goal.status === 'not_started'
       case 'completed':
         return goal.status === 'completed'
       default:
@@ -294,38 +287,22 @@ export default function GoalManager() {
   }
 
   const deleteGoal = async (goalId: string) => {
-    if (!studentId) {
-      console.error('No student ID available')
-      alert('无法删除目标：用户信息不完整。请重新登录。')
-      return
-    }
+    if (studentId) {
+      try {
+        const { error } = await supabase
+          .from('learning_goals')
+          .delete()
+          .eq('id', goalId)
+          .eq('student_id', studentId)
 
-    const confirmDelete = confirm('确定要删除这个目标吗？此操作无法撤销。')
-    if (!confirmDelete) {
-      return
-    }
-
-    try {
-      console.log('Deleting goal:', goalId, 'Student ID:', studentId)
-      
-      const response = await fetch(`/api/goals?id=${goalId}&student_id=${studentId}`, {
-        method: 'DELETE',
-      })
-
-      const result = await response.json()
-      console.log('Delete API response:', result)
-
-      if (response.ok && result.success) {
-        console.log('Goal deleted from database successfully')
-        setGoals(goals.filter(goal => goal.id !== goalId))
+        if (error) throw error
+      } catch (error) {
+        console.error('Error deleting goal:', error)
         return
-      } else {
-        throw new Error(result.error || 'API request failed')
       }
-    } catch (error: any) {
-      console.error('Error deleting goal:', error)
-      alert(`删除目标失败：${error?.message || String(error)}`)
     }
+
+    setGoals(goals.filter(goal => goal.id !== goalId))
   }
 
   const handleAddGoal = async (goalData: Omit<Goal, 'id' | 'created_at' | 'updated_at'>) => {
@@ -387,73 +364,6 @@ export default function GoalManager() {
     }
   }
 
-  const handleEditGoal = async (goalData: Omit<Goal, 'id' | 'created_at' | 'updated_at'>) => {
-    if (!editingGoal) return
-
-    console.log('Editing goal:', goalData)
-    console.log('Student ID:', studentId)
-
-    if (!studentId) {
-      console.error('No student ID available')
-      alert('无法更新目标：用户信息不完整。请重新登录。')
-      return
-    }
-
-    try {
-      const goalToUpdate = {
-        ...goalData,
-        student_id: studentId,
-        target_date: goalData.target_date || null
-      }
-
-      console.log('Sending updated goal to API:', goalToUpdate)
-
-      const response = await fetch('/api/goals', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...goalToUpdate,
-          id: editingGoal.id
-        })
-      })
-
-      const result = await response.json()
-      console.log('API response:', result)
-
-      if (response.ok && result.success) {
-        console.log('Goal updated in database successfully:', result.data)
-        setGoals(goals.map(goal => 
-          goal.id === editingGoal.id ? result.data : goal
-        ))
-        setEditingGoal(null)
-        return
-      } else {
-        throw new Error(result.error || 'API request failed')
-      }
-    } catch (error: any) {
-      console.error('Error updating goal:', error)
-      alert(`更新目标失败：${error?.message || String(error)}`)
-    }
-
-    // 如果数据库更新失败，提供重试选项
-    const retryLocal = confirm('数据库更新失败，是否改为本地更新？')
-    if (retryLocal) {
-      console.log('Using local storage fallback')
-      const updatedGoal: Goal = {
-        ...goalData,
-        id: editingGoal.id,
-        created_at: editingGoal.created_at,
-        updated_at: new Date().toISOString().split('T')[0]
-      }
-      setGoals(goals.map(goal => 
-        goal.id === editingGoal.id ? updatedGoal : goal
-      ))
-      setEditingGoal(null)
-    }
-  }
-
   if (loading) {
     return (
       <div className="bg-white rounded-lg shadow-sm p-6 border">
@@ -478,8 +388,8 @@ export default function GoalManager() {
             <Target className="w-6 h-6 text-orange-600" />
           </div>
           <div className="ml-4">
-            <h3 className="text-lg font-medium text-gray-900">OKR管理</h3>
-            <p className="text-sm text-gray-500">设定和追踪您的学习目标与关键结果</p>
+            <h3 className="text-lg font-medium text-gray-900">目标管理</h3>
+            <p className="text-sm text-gray-500">设定和追踪您的学习目标</p>
           </div>
         </div>
         <div className="flex items-center space-x-3">
@@ -488,7 +398,7 @@ export default function GoalManager() {
             className="inline-flex items-center px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-md hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
           >
             <Plus className="w-4 h-4 mr-2" />
-            新增OKR
+            新增目标
           </button>
           <Link href="/goals">
             <button className="inline-flex items-center px-4 py-2 bg-white text-orange-600 text-sm font-medium rounded-md border border-orange-600 hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500">
@@ -521,30 +431,24 @@ export default function GoalManager() {
       </div>
 
       {/* 目标统计 */}
-      <div className="flex justify-between items-center mb-6">
-        <div className="flex items-center space-x-6">
-          <div className="text-center">
-            <div className="text-2xl font-bold text-gray-600">{goals.length}</div>
-            <div className="text-sm text-gray-600">总目标</div>
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="text-center p-4 bg-blue-50 rounded-lg">
+          <div className="text-2xl font-bold text-blue-600">
+            {goals.filter(g => g.status === 'in_progress' || g.status === 'not_started').length}
           </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-blue-600">
-              {goals.filter(g => g.status === 'in_progress').length}
-            </div>
-            <div className="text-sm text-blue-600">进行中</div>
+          <div className="text-sm text-blue-600">进行中</div>
+        </div>
+        <div className="text-center p-4 bg-green-50 rounded-lg">
+          <div className="text-2xl font-bold text-green-600">
+            {goals.filter(g => g.status === 'completed').length}
           </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-green-600">
-              {goals.filter(g => g.status === 'completed').length}
-            </div>
-            <div className="text-sm text-green-600">已完成</div>
+          <div className="text-sm text-green-600">已完成</div>
+        </div>
+        <div className="text-center p-4 bg-gray-50 rounded-lg">
+          <div className="text-2xl font-bold text-gray-600">
+            {Math.round(goals.reduce((sum, goal) => sum + goal.progress, 0) / goals.length) || 0}%
           </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-orange-600">
-              {Math.round(goals.reduce((sum, goal) => sum + goal.progress, 0) / goals.length) || 0}%
-            </div>
-            <div className="text-sm text-orange-600">平均进度</div>
-          </div>
+          <div className="text-sm text-gray-600">平均进度</div>
         </div>
       </div>
 
@@ -566,36 +470,6 @@ export default function GoalManager() {
                 </div>
                 
                 <p className="text-gray-600 text-sm mb-3">{goal.description}</p>
-
-                {/* OKR关键结果显示 */}
-                {goal.key_results && goal.key_results.some(kr => kr.text.trim()) && (
-                  <div className="mb-3">
-                    <h5 className="text-sm font-medium text-gray-700 mb-2">关键结果:</h5>
-                    <div className="space-y-2">
-                      {goal.key_results
-                        .filter(kr => kr.text.trim())
-                        .map((kr, index) => (
-                          <div key={index} className="flex items-center space-x-2 text-sm">
-                            <span className="text-gray-500 w-6">KR{index + 1}:</span>
-                            <span className="flex-1 text-gray-700">{kr.text}</span>
-                            <div className="flex items-center space-x-1">
-                              {kr.completed ? (
-                                <CheckCircle className="w-4 h-4 text-green-500" />
-                              ) : (
-                                <div className="w-4 h-4 rounded-full border-2 border-gray-300 flex items-center justify-center">
-                                  <div 
-                                    className="w-2 h-2 rounded-full bg-blue-500"
-                                    style={{ opacity: kr.progress / 100 }}
-                                  />
-                                </div>
-                              )}
-                              <span className="text-xs text-gray-500 w-8">{kr.progress}%</span>
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                )}
                 
                 <div className="flex items-center space-x-4 text-sm text-gray-500">
                   <span>状态: {getStatusText(goal.status)}</span>
@@ -680,15 +554,6 @@ export default function GoalManager() {
           onSave={handleAddGoal}
         />
       )}
-
-      {/* 编辑目标表单弹窗 */}
-      {editingGoal && (
-        <EditGoalModal
-          goal={editingGoal}
-          onClose={() => setEditingGoal(null)}
-          onSave={handleEditGoal}
-        />
-      )}
     </div>
   )
 }
@@ -709,12 +574,7 @@ function AddGoalModal({
     target_date: '',
     progress: 0,
     status: 'not_started' as Goal['status'],
-    completion_date: null as string | null,
-    key_results: [
-      { text: '', progress: 0, completed: false },
-      { text: '', progress: 0, completed: false },
-      { text: '', progress: 0, completed: false }
-    ] as KeyResult[]
+    completion_date: null as string | null
   })
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -818,34 +678,6 @@ function AddGoalModal({
               />
             </div>
 
-            {/* OKR关键结果 */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                关键结果 (Key Results)
-              </label>
-              <div className="space-y-3">
-                {formData.key_results.map((kr, index) => (
-                  <div key={index} className="flex items-center space-x-2">
-                    <span className="text-sm text-gray-500 w-8">KR{index + 1}:</span>
-                    <input
-                      type="text"
-                      value={kr.text}
-                      onChange={(e) => {
-                        const newKeyResults = [...formData.key_results]
-                        newKeyResults[index] = { ...kr, text: e.target.value }
-                        setFormData({...formData, key_results: newKeyResults})
-                      }}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                      placeholder={`输入第${index + 1}个关键结果...`}
-                    />
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                💡 关键结果用于衡量目标达成情况，建议设置1-3个具体、可量化的结果
-              </p>
-            </div>
-
             <div className="flex justify-end space-x-3 pt-4">
               <button
                 type="button"
@@ -858,249 +690,7 @@ function AddGoalModal({
                 type="submit"
                 className="px-4 py-2 text-sm font-medium text-white bg-orange-600 border border-transparent rounded-md hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
               >
-                创建OKR
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// 编辑目标表单组件
-function EditGoalModal({ 
-  goal,
-  onClose, 
-  onSave 
-}: { 
-  goal: Goal
-  onClose: () => void
-  onSave: (goal: Omit<Goal, 'id' | 'created_at' | 'updated_at'>) => void 
-}) {
-  const [formData, setFormData] = useState({
-    title: goal.title,
-    description: goal.description,
-    category: goal.category,
-    priority: goal.priority,
-    target_date: goal.target_date || '',
-    progress: goal.progress,
-    status: goal.status,
-    completion_date: goal.completion_date,
-    key_results: goal.key_results || [
-      { text: '', progress: 0, completed: false },
-      { text: '', progress: 0, completed: false },
-      { text: '', progress: 0, completed: false }
-    ]
-  })
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    console.log('Edit form submitted:', formData)
-    if (formData.title.trim()) {
-      onSave(formData)
-    } else {
-      alert('请输入目标标题')
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" onClick={onClose}>
-      <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-        <div className="fixed inset-0 transition-opacity">
-          <div className="absolute inset-0 bg-gray-500 opacity-75"></div>
-        </div>
-
-        <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-        
-        <div 
-          className="inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6 relative z-10"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="mb-4">
-            <h3 className="text-lg leading-6 font-medium text-gray-900">编辑学习目标</h3>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                目标标题 *
-              </label>
-              <input
-                type="text"
-                value={formData.title}
-                onChange={(e) => setFormData({...formData, title: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                placeholder="例如：完成机器学习课程"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                详细描述
-              </label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => setFormData({...formData, description: e.target.value})}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                placeholder="描述您的目标细节和期望达到的效果"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  目标类型
-                </label>
-                <select
-                  value={formData.category}
-                  onChange={(e) => setFormData({...formData, category: e.target.value as Goal['category']})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                >
-                  {Object.entries(CATEGORIES).map(([key, {name}]) => (
-                    <option key={key} value={key}>{name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  优先级
-                </label>
-                <select
-                  value={formData.priority}
-                  onChange={(e) => setFormData({...formData, priority: e.target.value as Goal['priority']})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                >
-                  {Object.entries(PRIORITIES).map(([key, {name}]) => (
-                    <option key={key} value={key}>{name}优先级</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  状态
-                </label>
-                <select
-                  value={formData.status}
-                  onChange={(e) => setFormData({...formData, status: e.target.value as Goal['status']})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                >
-                  <option value="not_started">未开始</option>
-                  <option value="in_progress">进行中</option>
-                  <option value="completed">已完成</option>
-                  <option value="paused">已暂停</option>
-                  <option value="cancelled">已取消</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  完成进度 ({formData.progress}%)
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={formData.progress}
-                  onChange={(e) => setFormData({...formData, progress: parseInt(e.target.value)})}
-                  className="w-full"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                目标完成日期
-              </label>
-              <input
-                type="date"
-                value={formData.target_date}
-                onChange={(e) => setFormData({...formData, target_date: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                min={new Date().toISOString().split('T')[0]}
-              />
-            </div>
-
-            {/* OKR关键结果编辑 */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                关键结果 (Key Results)
-              </label>
-              <div className="space-y-3">
-                {formData.key_results.map((kr, index) => (
-                  <div key={index} className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-sm text-gray-500 w-8">KR{index + 1}:</span>
-                      <input
-                        type="text"
-                        value={kr.text}
-                        onChange={(e) => {
-                          const newKeyResults = [...formData.key_results]
-                          newKeyResults[index] = { ...kr, text: e.target.value }
-                          setFormData({...formData, key_results: newKeyResults})
-                        }}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                        placeholder={`输入第${index + 1}个关键结果...`}
-                      />
-                    </div>
-                    {kr.text && (
-                      <div className="ml-10 flex items-center space-x-2">
-                        <span className="text-xs text-gray-500">进度:</span>
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          value={kr.progress}
-                          onChange={(e) => {
-                            const newKeyResults = [...formData.key_results]
-                            newKeyResults[index] = { ...kr, progress: parseInt(e.target.value), completed: parseInt(e.target.value) === 100 }
-                            setFormData({...formData, key_results: newKeyResults})
-                          }}
-                          className="flex-1"
-                        />
-                        <span className="text-xs text-gray-600 w-10">{kr.progress}%</span>
-                        <label className="flex items-center text-xs text-gray-600">
-                          <input
-                            type="checkbox"
-                            checked={kr.completed}
-                            onChange={(e) => {
-                              const newKeyResults = [...formData.key_results]
-                              newKeyResults[index] = { ...kr, completed: e.target.checked, progress: e.target.checked ? 100 : kr.progress }
-                              setFormData({...formData, key_results: newKeyResults})
-                            }}
-                            className="mr-1"
-                          />
-                          已完成
-                        </label>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                💡 可以调整每个关键结果的完成进度，勾选"已完成"会自动设为100%
-              </p>
-            </div>
-
-            <div className="flex justify-end space-x-3 pt-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
-              >
-                取消
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 text-sm font-medium text-white bg-orange-600 border border-transparent rounded-md hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
-              >
-                更新OKR
+                创建目标
               </button>
             </div>
           </form>

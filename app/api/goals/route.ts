@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
         progress: goalData.progress || 0,
         target_date: goalData.target_date,
         completion_date: goalData.completion_date,
+        key_results: goalData.key_results || [],
         student_id: goalData.student_id
       }])
       .select()
@@ -170,6 +171,7 @@ export async function PUT(request: NextRequest) {
         progress: goalData.progress,
         target_date: goalData.target_date,
         completion_date: goalData.completion_date,
+        key_results: goalData.key_results || [],
         updated_at: new Date().toISOString()
       })
       .eq('id', goalData.id)
