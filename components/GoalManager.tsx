@@ -170,6 +170,11 @@ export default function GoalManager() {
         progress: 65,
         target_date: '2024-12-15',
         completion_date: null,
+        key_results: [
+          { text: '掌握链表和数组操作', progress: 80, completed: false },
+          { text: '理解树和图的遍历算法', progress: 60, completed: false },
+          { text: '期末考试达到85分以上', progress: 0, completed: false }
+        ],
         created_at: '2024-09-01',
         updated_at: '2024-11-15'
       },
@@ -183,6 +188,11 @@ export default function GoalManager() {
         progress: 40,
         target_date: '2024-11-30',
         completion_date: null,
+        key_results: [
+          { text: '掌握React Hooks用法', progress: 60, completed: false },
+          { text: '学习Redux状态管理', progress: 30, completed: false },
+          { text: '完成一个完整项目', progress: 20, completed: false }
+        ],
         created_at: '2024-10-01',
         updated_at: '2024-11-10'
       },
@@ -196,6 +206,11 @@ export default function GoalManager() {
         progress: 0,
         target_date: '2024-12-20',
         completion_date: null,
+        key_results: [
+          { text: '每日练习算法题', progress: 0, completed: false },
+          { text: '参加线上模拟赛', progress: 0, completed: false },
+          { text: '报名ACM竞赛', progress: 0, completed: false }
+        ],
         created_at: '2024-10-15',
         updated_at: '2024-10-15'
       },
@@ -209,6 +224,11 @@ export default function GoalManager() {
         progress: 100,
         target_date: '2024-10-28',
         completion_date: '2024-10-28',
+        key_results: [
+          { text: '词汇量达到4000+', progress: 100, completed: true },
+          { text: '听力练习每日1小时', progress: 100, completed: true },
+          { text: '模拟考试达到550分', progress: 100, completed: true }
+        ],
         created_at: '2024-08-01',
         updated_at: '2024-10-28'
       }
