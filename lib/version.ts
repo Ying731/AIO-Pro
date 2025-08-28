@@ -1,8 +1,8 @@
 // 版本管理配置
 export const VERSION_CONFIG = {
-  current: "v0.2.0",
+  current: "v0.3.0",
   name: "启明星学习平台",
-  buildDate: "2025-08-27"
+  buildDate: "2025-08-28"
 }
 
 // 更新记录数据类型
@@ -17,6 +17,30 @@ export interface UpdateRecord {
 
 // 项目开发历史记录
 export const UPDATE_HISTORY: UpdateRecord[] = [
+  {
+    version: "v0.3.0",
+    date: "2025-08-28",
+    type: "feature",
+    title: "项目管理系统完整实现",
+    description: [
+      "设计并创建项目管理数据库表结构",
+      "将课程管理页面重构为项目管理系统",
+      "实现学生项目参与、进度追踪和状态管理",
+      "完善目标管理系统的编辑和删除功能",
+      "优化用户界面显示项目类型、难度和进度信息"
+    ],
+    todos: [
+      "✅ 设计projects和project_enrollments数据表",
+      "✅ 在Supabase中创建项目管理相关表",
+      "✅ 重构/courses页面为项目管理界面", 
+      "✅ 实现项目参与和状态追踪功能",
+      "✅ 修复目标管理编辑功能bug",
+      "✅ 添加目标编辑弹窗和API支持",
+      "✅ 实现目标删除的数据库同步",
+      "✅ 优化目标统计面板显示",
+      "✅ 完善项目管理界面的用户体验"
+    ]
+  },
   {
     version: "v0.2.0",
     date: "2025-08-27",

@@ -5,17 +5,19 @@ import { supabase } from '@/lib/supabase'
 import { BookOpen, ArrowLeft, Users, Clock, Star, Play, CheckCircle, FileText, Calendar } from 'lucide-react'
 import Link from 'next/link'
 
-interface Course {
+interface Project {
   id: string
   name: string
   code: string
   description: string
-  credits: number
-  semester: string
-  academic_year: string
-  teacher_id: string
+  type: string
+  difficulty: string
+  duration_weeks: number
   max_students: number
   current_students: number
+  teacher_id: string
+  semester: string
+  academic_year: string
   status: string
   teachers?: {
     user_id: string
@@ -27,19 +29,21 @@ interface Course {
   }
 }
 
-interface Enrollment {
+interface ProjectEnrollment {
   id: string
   enrollment_status: string
+  progress: number
   final_grade?: number
   letter_grade?: string
   enrollment_date: string
-  course_id: string
-  courses?: Course
+  completion_date?: string
+  project_id: string
+  projects?: Project
 }
 
 export default function CoursesPage() {
-  const [courses, setCourses] = useState<Course[]>([])
-  const [enrollments, setEnrollments] = useState<Enrollment[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [enrollments, setEnrollments] = useState<ProjectEnrollment[]>([])
   const [user, setUser] = useState<any>(null)
   const [userRole, setUserRole] = useState<string>('')
   const [loading, setLoading] = useState(true)
@@ -61,9 +65,9 @@ export default function CoursesPage() {
       setUserRole(user.user_metadata?.role || 'student')
       
       if (user.user_metadata?.role === 'student') {
-        await loadStudentCourses(user.id)
+        await loadStudentProjects(user.id)
       } else {
-        await loadAllCourses()
+        await loadAllProjects()
       }
     } catch (error) {
       console.error('Error checking user:', error)
@@ -72,10 +76,10 @@ export default function CoursesPage() {
     }
   }
 
-  const loadAllCourses = async () => {
+  const loadAllProjects = async () => {
     try {
       const { data, error } = await supabase
-        .from('courses')
+        .from('projects')
         .select(`
           *,
           teachers (
@@ -91,14 +95,14 @@ export default function CoursesPage() {
         .order('created_at', { ascending: false })
 
       if (!error && data) {
-        setCourses(data)
+        setProjects(data)
       }
     } catch (error) {
-      console.error('Error loading courses:', error)
+      console.error('Error loading projects:', error)
     }
   }
 
-  const loadStudentCourses = async (userId: string) => {
+  const loadStudentProjects = async (userId: string) => {
     try {
       // 获取学生信息
       const { data: student } = await supabase
@@ -108,17 +112,17 @@ export default function CoursesPage() {
         .single()
 
       if (!student) {
-        // 如果没有学生记录，加载所有可用课程
-        await loadAllCourses()
+        // 如果没有学生记录，加载所有可用项目
+        await loadAllProjects()
         return
       }
 
-      // 获取学生的选课记录
+      // 获取学生的项目参与记录
       const { data: enrollmentData, error: enrollmentError } = await supabase
-        .from('enrollments')
+        .from('project_enrollments')
         .select(`
           *,
-          courses (
+          projects (
             *,
             teachers (
               user_id,
@@ -137,15 +141,15 @@ export default function CoursesPage() {
         setEnrollments(enrollmentData)
       }
 
-      // 同时加载所有可用课程
-      await loadAllCourses()
+      // 同时加载所有可用项目
+      await loadAllProjects()
 
     } catch (error) {
-      console.error('Error loading student courses:', error)
+      console.error('Error loading student projects:', error)
     }
   }
 
-  const enrollInCourse = async (courseId: string) => {
+  const enrollInProject = async (projectId: string) => {
     if (!user) return
 
     try {
@@ -161,43 +165,43 @@ export default function CoursesPage() {
       }
 
       const { error } = await supabase
-        .from('enrollments')
+        .from('project_enrollments')
         .insert({
           student_id: student.id,
-          course_id: courseId,
+          project_id: projectId,
           enrollment_status: 'enrolled'
         })
 
       if (error) {
         if (error.code === '23505') {
-          alert('您已经选择了这门课程')
+          alert('您已经参与了这个项目')
         } else {
-          alert('选课失败：' + error.message)
+          alert('参与项目失败：' + error.message)
         }
       } else {
-        alert('选课成功！')
-        await loadStudentCourses(user.id)
+        alert('参与项目成功！')
+        await loadStudentProjects(user.id)
       }
     } catch (error) {
-      console.error('Error enrolling in course:', error)
-      alert('选课失败，请重试')
+      console.error('Error enrolling in project:', error)
+      alert('参与项目失败，请重试')
     }
   }
 
-  const getAvailableCourses = () => {
-    const enrolledCourseIds = enrollments.map(e => e.course_id)
-    return courses.filter(course => !enrolledCourseIds.includes(course.id))
+  const getAvailableProjects = () => {
+    const enrolledProjectIds = enrollments.map(e => e.project_id)
+    return projects.filter(project => !enrolledProjectIds.includes(project.id))
   }
 
-  const getEnrolledCourses = () => {
+  const getEnrolledProjects = () => {
     return enrollments.filter(e => e.enrollment_status === 'enrolled')
   }
 
-  const getCompletedCourses = () => {
+  const getCompletedProjects = () => {
     return enrollments.filter(e => e.enrollment_status === 'completed')
   }
 
-  const CourseCard = ({ course, enrollment }: { course: Course, enrollment?: Enrollment }) => (
+  const ProjectCard = ({ project, enrollment }: { project: Project, enrollment?: ProjectEnrollment }) => (
     <div className="bg-white rounded-lg shadow-sm border p-6 hover:shadow-md transition-shadow">
       <div className="flex justify-between items-start mb-4">
         <div>
@@ -206,11 +210,11 @@ export default function CoursesPage() {
               <BookOpen className="w-5 h-5 text-blue-600" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">{course.name}</h3>
-              <p className="text-sm text-gray-500">{course.code} • {course.credits} 学分</p>
+              <h3 className="text-lg font-semibold text-gray-900">{project.name}</h3>
+              <p className="text-sm text-gray-500">{project.code} • {project.type} • {project.difficulty}</p>
             </div>
           </div>
-          <p className="text-gray-600 text-sm mb-3">{course.description}</p>
+          <p className="text-gray-600 text-sm mb-3">{project.description}</p>
         </div>
         {enrollment?.enrollment_status === 'completed' && (
           <div className="flex items-center text-green-600 bg-green-50 px-2 py-1 rounded-full text-xs">
@@ -224,42 +228,49 @@ export default function CoursesPage() {
         <div className="flex items-center space-x-4">
           <div className="flex items-center">
             <Users className="w-4 h-4 mr-1" />
-            {course.current_students}/{course.max_students}
+            {project.current_students}/{project.max_students}
+          </div>
+          <div className="flex items-center">
+            <Clock className="w-4 h-4 mr-1" />
+            {project.duration_weeks}周
           </div>
           <div className="flex items-center">
             <Calendar className="w-4 h-4 mr-1" />
-            {course.semester}
+            {project.semester}
           </div>
         </div>
-        {course.teachers?.profiles?.full_name && (
-          <span>{course.teachers.profiles.full_name}</span>
+        {project.teachers?.profiles?.full_name && (
+          <span>{project.teachers.profiles.full_name}</span>
         )}
       </div>
 
       {enrollment && (
         <div className="mb-4 p-3 bg-gray-50 rounded-lg">
           <div className="flex justify-between text-sm">
-            <span>选课时间: {new Date(enrollment.enrollment_date).toLocaleDateString()}</span>
-            {enrollment.final_grade && (
-              <span className="font-medium">成绩: {enrollment.letter_grade} ({enrollment.final_grade})</span>
-            )}
+            <span>参与时间: {new Date(enrollment.enrollment_date).toLocaleDateString()}</span>
+            <span>进度: {enrollment.progress}%</span>
           </div>
+          {enrollment.final_grade && (
+            <div className="mt-2 text-sm">
+              <span className="font-medium">成绩: {enrollment.letter_grade} ({enrollment.final_grade})</span>
+            </div>
+          )}
         </div>
       )}
 
       <div className="flex justify-between items-center">
         {!enrollment ? (
           <button
-            onClick={() => enrollInCourse(course.id)}
+            onClick={() => enrollInProject(project.id)}
             className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700"
           >
             <BookOpen className="w-4 h-4 mr-2" />
-            选择课程
+            参与项目
           </button>
         ) : enrollment.enrollment_status === 'enrolled' ? (
           <button className="inline-flex items-center px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700">
             <Play className="w-4 h-4 mr-2" />
-            进入学习
+            进入项目
           </button>
         ) : (
           <button className="inline-flex items-center px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-md">
@@ -281,7 +292,7 @@ export default function CoursesPage() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600 mx-auto mb-4"></div>
-          <p className="text-gray-500">加载课程中...</p>
+          <p className="text-gray-500">加载项目中...</p>
         </div>
       </div>
     )
@@ -290,7 +301,7 @@ export default function CoursesPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* 顶部导航 */}
-      <div className="bg-white shadow-sm border-b">
+      <div className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
@@ -304,10 +315,10 @@ export default function CoursesPage() {
                 </div>
                 <div>
                   <h1 className="text-xl font-bold text-gray-900">
-                    {userRole === 'student' ? '我的课程' : '课程管理'}
+                    {userRole === 'student' ? '我的项目' : '项目管理'}
                   </h1>
                   <p className="text-sm text-gray-500">
-                    {userRole === 'student' ? '学习进度追踪与课程管理' : '课程信息管理'}
+                    {userRole === 'student' ? '学习进度追踪与项目管理' : '项目信息管理'}
                   </p>
                 </div>
               </div>
@@ -323,9 +334,9 @@ export default function CoursesPage() {
             <div className="mb-6">
               <div className="flex space-x-1 bg-white rounded-lg p-1 shadow-sm">
                 {[
-                  { key: 'enrolled', label: '已选课程', count: getEnrolledCourses().length },
-                  { key: 'available', label: '可选课程', count: getAvailableCourses().length },
-                  { key: 'completed', label: '已完成', count: getCompletedCourses().length }
+                  { key: 'enrolled', label: '已选项目', count: getEnrolledProjects().length },
+                  { key: 'available', label: '可选项目', count: getAvailableProjects().length },
+                  { key: 'completed', label: '已完成', count: getCompletedProjects().length }
                 ].map(tab => (
                   <button
                     key={tab.key}
@@ -342,22 +353,22 @@ export default function CoursesPage() {
               </div>
             </div>
 
-            {/* 课程网格 */}
+            {/* 项目网格 */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {activeTab === 'available' && getAvailableCourses().map(course => (
-                <CourseCard key={course.id} course={course} />
+              {activeTab === 'available' && getAvailableProjects().map(project => (
+                <ProjectCard key={project.id} project={project} />
               ))}
-              {activeTab === 'enrolled' && getEnrolledCourses().map(enrollment => (
-                <CourseCard 
+              {activeTab === 'enrolled' && getEnrolledProjects().map(enrollment => (
+                <ProjectCard 
                   key={enrollment.id} 
-                  course={enrollment.courses!} 
+                  project={enrollment.projects!} 
                   enrollment={enrollment}
                 />
               ))}
-              {activeTab === 'completed' && getCompletedCourses().map(enrollment => (
-                <CourseCard 
+              {activeTab === 'completed' && getCompletedProjects().map(enrollment => (
+                <ProjectCard 
                   key={enrollment.id} 
-                  course={enrollment.courses!} 
+                  project={enrollment.projects!} 
                   enrollment={enrollment}
                 />
               ))}
@@ -365,21 +376,21 @@ export default function CoursesPage() {
 
             {/* 空状态 */}
             {(
-              (activeTab === 'available' && getAvailableCourses().length === 0) ||
-              (activeTab === 'enrolled' && getEnrolledCourses().length === 0) ||
-              (activeTab === 'completed' && getCompletedCourses().length === 0)
+              (activeTab === 'available' && getAvailableProjects().length === 0) ||
+              (activeTab === 'enrolled' && getEnrolledProjects().length === 0) ||
+              (activeTab === 'completed' && getCompletedProjects().length === 0)
             ) && (
               <div className="text-center py-12">
                 <BookOpen className="w-16 h-16 mx-auto mb-4 text-gray-300" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  {activeTab === 'available' && '暂无可选课程'}
-                  {activeTab === 'enrolled' && '还未选择任何课程'}
-                  {activeTab === 'completed' && '还没有完成的课程'}
+                  {activeTab === 'available' && '暂无可选项目'}
+                  {activeTab === 'enrolled' && '还未参与任何项目'}
+                  {activeTab === 'completed' && '还没有完成的项目'}
                 </h3>
                 <p className="text-gray-500">
                   {activeTab === 'available' && '请稍后再来查看'}
-                  {activeTab === 'enrolled' && '浏览可选课程开始学习吧'}
-                  {activeTab === 'completed' && '完成课程后将在这里显示'}
+                  {activeTab === 'enrolled' && '浏览可选项目开始参与吧'}
+                  {activeTab === 'completed' && '完成项目后将在这里显示'}
                 </p>
               </div>
             )}
@@ -387,8 +398,8 @@ export default function CoursesPage() {
         ) : (
           /* 教师/管理员视图 */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {courses.map(course => (
-              <CourseCard key={course.id} course={course} />
+            {projects.map(project => (
+              <ProjectCard key={project.id} project={project} />
             ))}
           </div>
         )}

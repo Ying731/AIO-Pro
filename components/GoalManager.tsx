@@ -212,7 +212,7 @@ export default function GoalManager() {
   const filteredGoals = goals.filter(goal => {
     switch (filter) {
       case 'active':
-        return goal.status === 'in_progress' || goal.status === 'not_started'
+        return goal.status === 'in_progress'
       case 'completed':
         return goal.status === 'completed'
       default:
@@ -287,22 +287,38 @@ export default function GoalManager() {
   }
 
   const deleteGoal = async (goalId: string) => {
-    if (studentId) {
-      try {
-        const { error } = await supabase
-          .from('learning_goals')
-          .delete()
-          .eq('id', goalId)
-          .eq('student_id', studentId)
-
-        if (error) throw error
-      } catch (error) {
-        console.error('Error deleting goal:', error)
-        return
-      }
+    if (!studentId) {
+      console.error('No student ID available')
+      alert('无法删除目标：用户信息不完整。请重新登录。')
+      return
     }
 
-    setGoals(goals.filter(goal => goal.id !== goalId))
+    const confirmDelete = confirm('确定要删除这个目标吗？此操作无法撤销。')
+    if (!confirmDelete) {
+      return
+    }
+
+    try {
+      console.log('Deleting goal:', goalId, 'Student ID:', studentId)
+      
+      const response = await fetch(`/api/goals?id=${goalId}&student_id=${studentId}`, {
+        method: 'DELETE',
+      })
+
+      const result = await response.json()
+      console.log('Delete API response:', result)
+
+      if (response.ok && result.success) {
+        console.log('Goal deleted from database successfully')
+        setGoals(goals.filter(goal => goal.id !== goalId))
+        return
+      } else {
+        throw new Error(result.error || 'API request failed')
+      }
+    } catch (error: any) {
+      console.error('Error deleting goal:', error)
+      alert(`删除目标失败：${error?.message || String(error)}`)
+    }
   }
 
   const handleAddGoal = async (goalData: Omit<Goal, 'id' | 'created_at' | 'updated_at'>) => {
@@ -361,6 +377,73 @@ export default function GoalManager() {
       }
       setGoals([newGoal, ...goals])
       setShowAddForm(false)
+    }
+  }
+
+  const handleEditGoal = async (goalData: Omit<Goal, 'id' | 'created_at' | 'updated_at'>) => {
+    if (!editingGoal) return
+
+    console.log('Editing goal:', goalData)
+    console.log('Student ID:', studentId)
+
+    if (!studentId) {
+      console.error('No student ID available')
+      alert('无法更新目标：用户信息不完整。请重新登录。')
+      return
+    }
+
+    try {
+      const goalToUpdate = {
+        ...goalData,
+        student_id: studentId,
+        target_date: goalData.target_date || null
+      }
+
+      console.log('Sending updated goal to API:', goalToUpdate)
+
+      const response = await fetch('/api/goals', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...goalToUpdate,
+          id: editingGoal.id
+        })
+      })
+
+      const result = await response.json()
+      console.log('API response:', result)
+
+      if (response.ok && result.success) {
+        console.log('Goal updated in database successfully:', result.data)
+        setGoals(goals.map(goal => 
+          goal.id === editingGoal.id ? result.data : goal
+        ))
+        setEditingGoal(null)
+        return
+      } else {
+        throw new Error(result.error || 'API request failed')
+      }
+    } catch (error: any) {
+      console.error('Error updating goal:', error)
+      alert(`更新目标失败：${error?.message || String(error)}`)
+    }
+
+    // 如果数据库更新失败，提供重试选项
+    const retryLocal = confirm('数据库更新失败，是否改为本地更新？')
+    if (retryLocal) {
+      console.log('Using local storage fallback')
+      const updatedGoal: Goal = {
+        ...goalData,
+        id: editingGoal.id,
+        created_at: editingGoal.created_at,
+        updated_at: new Date().toISOString().split('T')[0]
+      }
+      setGoals(goals.map(goal => 
+        goal.id === editingGoal.id ? updatedGoal : goal
+      ))
+      setEditingGoal(null)
     }
   }
 
@@ -431,24 +514,30 @@ export default function GoalManager() {
       </div>
 
       {/* 目标统计 */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="text-center p-4 bg-blue-50 rounded-lg">
-          <div className="text-2xl font-bold text-blue-600">
-            {goals.filter(g => g.status === 'in_progress' || g.status === 'not_started').length}
+      <div className="flex justify-between items-center mb-6">
+        <div className="flex items-center space-x-6">
+          <div className="text-center">
+            <div className="text-2xl font-bold text-gray-600">{goals.length}</div>
+            <div className="text-sm text-gray-600">总目标</div>
           </div>
-          <div className="text-sm text-blue-600">进行中</div>
-        </div>
-        <div className="text-center p-4 bg-green-50 rounded-lg">
-          <div className="text-2xl font-bold text-green-600">
-            {goals.filter(g => g.status === 'completed').length}
+          <div className="text-center">
+            <div className="text-2xl font-bold text-blue-600">
+              {goals.filter(g => g.status === 'in_progress').length}
+            </div>
+            <div className="text-sm text-blue-600">进行中</div>
           </div>
-          <div className="text-sm text-green-600">已完成</div>
-        </div>
-        <div className="text-center p-4 bg-gray-50 rounded-lg">
-          <div className="text-2xl font-bold text-gray-600">
-            {Math.round(goals.reduce((sum, goal) => sum + goal.progress, 0) / goals.length) || 0}%
+          <div className="text-center">
+            <div className="text-2xl font-bold text-green-600">
+              {goals.filter(g => g.status === 'completed').length}
+            </div>
+            <div className="text-sm text-green-600">已完成</div>
           </div>
-          <div className="text-sm text-gray-600">平均进度</div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-orange-600">
+              {Math.round(goals.reduce((sum, goal) => sum + goal.progress, 0) / goals.length) || 0}%
+            </div>
+            <div className="text-sm text-orange-600">平均进度</div>
+          </div>
         </div>
       </div>
 
@@ -552,6 +641,15 @@ export default function GoalManager() {
         <AddGoalModal
           onClose={() => setShowAddForm(false)}
           onSave={handleAddGoal}
+        />
+      )}
+
+      {/* 编辑目标表单弹窗 */}
+      {editingGoal && (
+        <EditGoalModal
+          goal={editingGoal}
+          onClose={() => setEditingGoal(null)}
+          onSave={handleEditGoal}
         />
       )}
     </div>
@@ -691,6 +789,182 @@ function AddGoalModal({
                 className="px-4 py-2 text-sm font-medium text-white bg-orange-600 border border-transparent rounded-md hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
               >
                 创建目标
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// 编辑目标表单组件
+function EditGoalModal({ 
+  goal,
+  onClose, 
+  onSave 
+}: { 
+  goal: Goal
+  onClose: () => void
+  onSave: (goal: Omit<Goal, 'id' | 'created_at' | 'updated_at'>) => void 
+}) {
+  const [formData, setFormData] = useState({
+    title: goal.title,
+    description: goal.description,
+    category: goal.category,
+    priority: goal.priority,
+    target_date: goal.target_date || '',
+    progress: goal.progress,
+    status: goal.status,
+    completion_date: goal.completion_date
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    console.log('Edit form submitted:', formData)
+    if (formData.title.trim()) {
+      onSave(formData)
+    } else {
+      alert('请输入目标标题')
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto" onClick={onClose}>
+      <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+        <div className="fixed inset-0 transition-opacity">
+          <div className="absolute inset-0 bg-gray-500 opacity-75"></div>
+        </div>
+
+        <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+        
+        <div 
+          className="inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6 relative z-10"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="mb-4">
+            <h3 className="text-lg leading-6 font-medium text-gray-900">编辑学习目标</h3>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                目标标题 *
+              </label>
+              <input
+                type="text"
+                value={formData.title}
+                onChange={(e) => setFormData({...formData, title: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                placeholder="例如：完成机器学习课程"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                详细描述
+              </label>
+              <textarea
+                value={formData.description}
+                onChange={(e) => setFormData({...formData, description: e.target.value})}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                placeholder="描述您的目标细节和期望达到的效果"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  目标类型
+                </label>
+                <select
+                  value={formData.category}
+                  onChange={(e) => setFormData({...formData, category: e.target.value as Goal['category']})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                >
+                  {Object.entries(CATEGORIES).map(([key, {name}]) => (
+                    <option key={key} value={key}>{name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  优先级
+                </label>
+                <select
+                  value={formData.priority}
+                  onChange={(e) => setFormData({...formData, priority: e.target.value as Goal['priority']})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                >
+                  {Object.entries(PRIORITIES).map(([key, {name}]) => (
+                    <option key={key} value={key}>{name}优先级</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  状态
+                </label>
+                <select
+                  value={formData.status}
+                  onChange={(e) => setFormData({...formData, status: e.target.value as Goal['status']})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                >
+                  <option value="not_started">未开始</option>
+                  <option value="in_progress">进行中</option>
+                  <option value="completed">已完成</option>
+                  <option value="paused">已暂停</option>
+                  <option value="cancelled">已取消</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  完成进度 ({formData.progress}%)
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={formData.progress}
+                  onChange={(e) => setFormData({...formData, progress: parseInt(e.target.value)})}
+                  className="w-full"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                目标完成日期
+              </label>
+              <input
+                type="date"
+                value={formData.target_date}
+                onChange={(e) => setFormData({...formData, target_date: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                min={new Date().toISOString().split('T')[0]}
+              />
+            </div>
+
+            <div className="flex justify-end space-x-3 pt-4">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
+              >
+                取消
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 text-sm font-medium text-white bg-orange-600 border border-transparent rounded-md hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
+              >
+                更新目标
               </button>
             </div>
           </form>
