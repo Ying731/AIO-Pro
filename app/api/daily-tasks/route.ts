@@ -312,6 +312,12 @@ export async function PUT(request: NextRequest) {
 
     // 准备任务数据
     const taskRecords = tasks.map((taskContent: string, index: number) => {
+      // 确保 taskContent 不为空
+      if (!taskContent || typeof taskContent !== 'string') {
+        console.warn(`Invalid task content at index ${index}:`, taskContent)
+        taskContent = '学习任务'
+      }
+      
       // 从任务内容中提取信息
       const categoryMatch = taskContent.match(/【([^】]+)】/)
       const category = categoryMatch ? categoryMatch[1] : '学习任务'
@@ -322,10 +328,10 @@ export async function PUT(request: NextRequest) {
       
       if (timeMatch) {
         const timeStr = timeMatch[1]
-        if (timeStr.includes('小时')) {
+        if (timeStr && timeStr.includes('小时')) {
           const hours = parseFloat(timeStr.replace('小时', ''))
           estimatedMinutes = hours * 60
-        } else if (timeStr.includes('分钟')) {
+        } else if (timeStr && timeStr.includes('分钟')) {
           estimatedMinutes = parseFloat(timeStr.replace('分钟', ''))
         }
       }
@@ -337,8 +343,12 @@ export async function PUT(request: NextRequest) {
       if (goals && goals.length > 0) {
         // 简单的关键词匹配找到相关目标
         const relatedGoal = goals.find(goal => 
-          taskContent.includes(goal.title) || 
-          basedOnGoals?.some((baseGoal: string) => baseGoal.includes(goal.title))
+          (taskContent && goal.title && taskContent.includes(goal.title)) || 
+          (basedOnGoals && Array.isArray(basedOnGoals) && 
+           basedOnGoals.some((baseGoal: string) => 
+             baseGoal && typeof baseGoal === 'string' && 
+             goal.title && typeof goal.title === 'string' && 
+             baseGoal.includes(goal.title)))
         )
         
         if (relatedGoal) {
