@@ -252,3 +252,171 @@ function calculateTotalTime(tasks: string[]): string {
     return `约${minutes}分钟`
   }
 }
+
+// PUT 方法：保存每日任务到数据库
+export async function PUT(request: NextRequest) {
+  try {
+    const { student_id, tasks, basedOnGoals, generation_session_id } = await request.json()
+    
+    console.log('Saving daily tasks:', { student_id, tasks: tasks?.length, basedOnGoals })
+
+    if (!student_id) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'student_id is required' 
+      }, { status: 400 })
+    }
+
+    if (!tasks || !Array.isArray(tasks) || tasks.length === 0) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Tasks array is required and must not be empty' 
+      }, { status: 400 })
+    }
+
+    // 验证学生是否存在
+    const { data: student, error: studentError } = await supabaseAdmin
+      .from('students')
+      .select('id, user_id')
+      .eq('id', student_id)
+      .single()
+
+    if (studentError || !student) {
+      console.error('Student not found:', studentError)
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Student not found' 
+      }, { status: 404 })
+    }
+
+    // 获取学生的OKR目标信息（用于关联）
+    const { data: goals, error: goalsError } = await supabaseAdmin
+      .from('learning_goals')
+      .select('id, title, category')
+      .eq('student_id', student_id)
+      .in('status', ['in_progress', 'not_started'])
+
+    if (goalsError) {
+      console.error('Error fetching goals:', goalsError)
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Failed to fetch student goals' 
+      }, { status: 500 })
+    }
+
+    // 生成唯一的会话ID（服务器端生成UUID）
+    const sessionId = generation_session_id && generation_session_id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i) 
+      ? generation_session_id 
+      : crypto.randomUUID()
+    const today = new Date().toISOString().split('T')[0]
+
+    // 准备任务数据
+    const taskRecords = tasks.map((taskContent: string, index: number) => {
+      // 从任务内容中提取信息
+      const categoryMatch = taskContent.match(/【([^】]+)】/)
+      const category = categoryMatch ? categoryMatch[1] : '学习任务'
+      
+      // 提取时长
+      const timeMatch = taskContent.match(/\(([^)]+)\)/)
+      let estimatedMinutes = 60 // 默认60分钟
+      
+      if (timeMatch) {
+        const timeStr = timeMatch[1]
+        if (timeStr.includes('小时')) {
+          const hours = parseFloat(timeStr.replace('小时', ''))
+          estimatedMinutes = hours * 60
+        } else if (timeStr.includes('分钟')) {
+          estimatedMinutes = parseFloat(timeStr.replace('分钟', ''))
+        }
+      }
+
+      // 尝试匹配相关的OKR目标
+      let sourceGoalId = null
+      let goalTitle = ''
+      
+      if (goals && goals.length > 0) {
+        // 简单的关键词匹配找到相关目标
+        const relatedGoal = goals.find(goal => 
+          taskContent.includes(goal.title) || 
+          basedOnGoals?.some((baseGoal: string) => baseGoal.includes(goal.title))
+        )
+        
+        if (relatedGoal) {
+          sourceGoalId = relatedGoal.id
+          goalTitle = relatedGoal.title
+        } else {
+          // 如果没有匹配，使用第一个目标作为默认
+          sourceGoalId = goals[0].id
+          goalTitle = goals[0].title
+        }
+      }
+
+      return {
+        student_id,
+        task_content: taskContent,
+        task_category: category,
+        estimated_minutes: Math.round(estimatedMinutes),
+        status: 'pending',
+        source_goal_id: sourceGoalId,
+        source_key_result_index: 0, // 默认关联第一个关键结果
+        goal_title: goalTitle,
+        generation_session_id: sessionId,
+        task_order: index + 1,
+        task_date: today
+      }
+    })
+
+    console.log('Prepared task records:', taskRecords.length)
+
+    // 批量插入任务
+    const { data: insertedTasks, error: insertError } = await supabaseAdmin
+      .from('daily_tasks')
+      .insert(taskRecords)
+      .select('*')
+
+    if (insertError) {
+      console.error('Error inserting tasks:', insertError)
+      return NextResponse.json({ 
+        success: false, 
+        error: `Failed to save tasks: ${insertError.message}` 
+      }, { status: 500 })
+    }
+
+    // 创建任务会话记录（可选）
+    if (basedOnGoals && basedOnGoals.length > 0) {
+      const { error: sessionError } = await supabaseAdmin
+        .from('daily_task_sessions')
+        .insert({
+          student_id,
+          generation_date: today,
+          total_tasks: tasks.length,
+          based_on_goals: basedOnGoals,
+          ai_prompt_used: `基于${basedOnGoals.length}个OKR目标生成${tasks.length}个每日任务`
+        })
+
+      if (sessionError) {
+        console.warn('Failed to create session record:', sessionError)
+        // 不阻断主流程，只记录警告
+      }
+    }
+
+    console.log(`Successfully saved ${insertedTasks?.length} tasks for student ${student_id}`)
+
+    return NextResponse.json({
+      success: true,
+      message: `成功保存${insertedTasks?.length}个每日任务`,
+      data: {
+        tasks: insertedTasks,
+        session_id: sessionId,
+        saved_count: insertedTasks?.length
+      }
+    })
+
+  } catch (error: any) {
+    console.error('Error in PUT /api/daily-tasks:', error)
+    return NextResponse.json({ 
+      success: false, 
+      error: error?.message || 'Internal server error' 
+    }, { status: 500 })
+  }
+}

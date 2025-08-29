@@ -1,0 +1,229 @@
+{
+  "name": "daily-task-generator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "generate-daily-tasks",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "webhook-daily-tasks",
+      "name": "任务生成Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "generate-daily-tasks"
+    },
+    {
+      "parameters": {
+        "functionCode": "// 解析请求数据\nconst webhookData = $input.first().json;\n\nlet studentId = '';\nlet date = '';\nlet preferences = {};\n\nif (webhookData.body) {\n  const body = typeof webhookData.body === 'string' ? JSON.parse(webhookData.body) : webhookData.body;\n  studentId = body.student_id || '';\n  date = body.date || new Date().toISOString().split('T')[0];\n  preferences = body.preferences || {};\n} else {\n  studentId = webhookData.student_id || '';\n  date = webhookData.date || new Date().toISOString().split('T')[0];\n  preferences = webhookData.preferences || {};\n}\n\nconsole.log('处理任务生成请求:', { studentId, date, preferences });\n\nreturn {\n  studentId: studentId,\n  date: date,\n  taskCount: preferences.taskCount || 5,\n  maxDuration: preferences.maxDuration || 480,\n  priorities: preferences.priorities || ['high', 'medium'],\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "parse-request",
+      "name": "解析请求",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "learning_goals",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "student_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.studentId }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "in",
+              "keyValue": "in_progress,not_started"
+            }
+          ]
+        },
+        "sort": {
+          "fields": [
+            {
+              "field": "priority",
+              "direction": "desc"
+            },
+            {
+              "field": "target_date",
+              "direction": "asc"
+            }
+          ]
+        },
+        "limit": 5
+      },
+      "id": "get-okr-goals",
+      "name": "获取OKR目标",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-api-cred",
+          "name": "Supabase API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// 构建AI任务生成提示词\nconst requestData = $('解析请求').first().json;\nconst goals = $('获取OKR目标').all();\n\nif (!goals || goals.length === 0) {\n  throw new Error('没有找到活跃的学习目标，请先创建一些OKR目标');\n}\n\n// 构建OKR上下文\nconst okrContext = goals.map((goal, index) => {\n  const keyResultsText = goal.key_results && goal.key_results.length > 0\n    ? goal.key_results\n        .filter(kr => kr.text && kr.text.trim())\n        .map((kr, i) => `    KR${i + 1}: ${kr.text} (当前进度: ${kr.progress}%, ${kr.completed ? '已完成' : '进行中'})`)\n        .join('\\n')\n    : '    暂无具体关键结果';\n\n  // 计算紧急程度\n  let urgency = '【一般】';\n  if (goal.target_date) {\n    const today = new Date();\n    const targetDate = new Date(goal.target_date);\n    const daysLeft = Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));\n    \n    if (daysLeft <= 7) urgency = '【紧急】';\n    else if (daysLeft <= 30) urgency = '【重要】';\n  }\n\n  return `目标${index + 1}: ${goal.title} ${urgency}\n描述: ${goal.description}\n类别: ${goal.category}\n优先级: ${goal.priority}\n当前进度: ${goal.progress}%\n截止日期: ${goal.target_date ? new Date(goal.target_date).toLocaleDateString() : '无'}\n关键结果:\n${keyResultsText}\n---`;\n}).join('\\n');\n\n// 构建AI提示词\nconst systemPrompt = `你是一位专业的学习规划师和AI助手。基于学生的OKR目标，为其生成今日具体的学习任务。\n\n学生的OKR信息：\n${okrContext}\n\n任务生成规则：\n1. 生成${requestData.taskCount}条今日具体可执行的学习任务\n2. 每个任务格式：【类别标签】具体任务描述 (预估时长)\n3. 优先推进进度较低的关键结果\n4. 任务难度适中，符合学生当前学习节奏\n5. 考虑目标截止日期，合理安排紧迫性\n6. 每个任务时长控制在30分钟到3小时之间\n7. 总学习时长不超过${Math.floor(requestData.maxDuration / 60)}小时\n\n类别标签参考：\n- 【理论学习】：概念学习、知识点理解\n- 【编程练习】：代码实践、算法题目\n- 【项目实践】：实际项目开发\n- 【复习巩固】：回顾总结、笔记整理\n- 【学习规划】：目标调整、计划制定\n\n输出格式要求：\n- 直接输出任务列表，不要额外解释\n- 每个任务单独一行\n- 按重要性和紧急程度排序\n- 确保任务具体可执行，有明确的学习目标\n\n请现在生成今日学习任务：`;\n\nreturn {\n  prompt: systemPrompt,\n  studentId: requestData.studentId,\n  taskCount: requestData.taskCount,\n  basedOnGoals: goals.map(g => g.title),\n  okrContext: okrContext\n};"
+      },
+      "id": "build-ai-prompt",
+      "name": "构建AI提示词",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": \"{{ $json.prompt }}\"\n        }\n      ]\n    }\n  ],\n  \"generationConfig\": {\n    \"temperature\": 0.7,\n    \"topK\": 40,\n    \"topP\": 0.8,\n    \"maxOutputTokens\": 1000,\n    \"stopSequences\": []\n  },\n  \"safetySettings\": [\n    {\n      \"category\": \"HARM_CATEGORY_HARASSMENT\",\n      \"threshold\": \"BLOCK_MEDIUM_AND_ABOVE\"\n    },\n    {\n      \"category\": \"HARM_CATEGORY_HATE_SPEECH\",\n      \"threshold\": \"BLOCK_MEDIUM_AND_ABOVE\"\n    },\n    {\n      \"category\": \"HARM_CATEGORY_SEXUALLY_EXPLICIT\",\n      \"threshold\": \"BLOCK_MEDIUM_AND_ABOVE\"\n    },\n    {\n      \"category\": \"HARM_CATEGORY_DANGEROUS_CONTENT\",\n      \"threshold\": \"BLOCK_MEDIUM_AND_ABOVE\"\n    }\n  ]\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "gemini-api-call",
+      "name": "Gemini AI调用",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gemini-api-key",
+          "name": "Gemini API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// 解析Gemini AI响应并格式化任务数据\nconst aiResponse = $input.first().json;\nconst promptData = $('构建AI提示词').first().json;\n\nlet aiText = '';\nif (aiResponse.candidates && aiResponse.candidates[0] && aiResponse.candidates[0].content && aiResponse.candidates[0].content.parts) {\n  aiText = aiResponse.candidates[0].content.parts[0].text || '';\n} else {\n  throw new Error('AI响应格式异常');\n}\n\nconsole.log('AI生成的任务文本:', aiText);\n\n// 解析任务列表\nconst taskLines = aiText.split('\\n').filter(line => line.trim() && !line.includes('：') && !line.startsWith('#'));\n\nconst tasks = taskLines.map((taskLine, index) => {\n  const cleanLine = taskLine.trim().replace(/^\\d+\\.\\s*/, ''); // 移除数字序号\n  \n  // 提取类别\n  const categoryMatch = cleanLine.match(/【([^】]+)】/);\n  const category = categoryMatch ? categoryMatch[1] : '学习任务';\n  \n  // 提取时长\n  const timeMatch = cleanLine.match(/\\(([^)]+)\\)/);\n  let estimatedMinutes = 60; // 默认60分钟\n  \n  if (timeMatch) {\n    const timeStr = timeMatch[1];\n    if (timeStr.includes('小时')) {\n      const hours = parseFloat(timeStr.replace('小时', ''));\n      estimatedMinutes = hours * 60;\n    } else if (timeStr.includes('分钟')) {\n      estimatedMinutes = parseFloat(timeStr.replace('分钟', ''));\n    }\n  }\n  \n  return {\n    task_content: cleanLine,\n    task_category: category,\n    estimated_minutes: Math.round(estimatedMinutes),\n    task_order: index + 1,\n    status: 'pending'\n  };\n});\n\n// 计算总预估时长\nconst totalMinutes = tasks.reduce((sum, task) => sum + task.estimated_minutes, 0);\nconst hours = Math.floor(totalMinutes / 60);\nconst minutes = totalMinutes % 60;\n\nlet totalEstimatedTime = '';\nif (hours > 0 && minutes > 0) {\n  totalEstimatedTime = `约${hours}小时${minutes}分钟`;\n} else if (hours > 0) {\n  totalEstimatedTime = `约${hours}小时`;\n} else {\n  totalEstimatedTime = `约${minutes}分钟`;\n}\n\nconsole.log(`解析出${tasks.length}个任务，总时长${totalEstimatedTime}`);\n\nreturn {\n  tasks: tasks,\n  basedOnGoals: promptData.basedOnGoals,\n  generatedAt: new Date().toISOString(),\n  totalEstimatedTime: totalEstimatedTime,\n  aiRawResponse: aiText,\n  studentId: promptData.studentId\n};"
+      },
+      "id": "parse-ai-response",
+      "name": "解析AI响应",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"data\": {\n    \"tasks\": {{ $json.tasks }},\n    \"basedOnGoals\": {{ $json.basedOnGoals }},\n    \"generatedAt\": \"{{ $json.generatedAt }}\",\n    \"totalEstimatedTime\": \"{{ $json.totalEstimatedTime }}\"\n  },\n  \"debug\": {\n    \"studentId\": \"{{ $json.studentId }}\",\n    \"taskCount\": {{ $json.tasks.length }},\n    \"source\": \"n8n-gemini-workflow\"\n  }\n}"
+      },
+      "id": "return-response",
+      "name": "返回结果",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"error\": \"{{ $json.error || 'Unknown error occurred' }}\",\n  \"debug\": {\n    \"step\": \"{{ $json.step || 'unknown' }}\",\n    \"timestamp\": \"{{ new Date().toISOString() }}\"\n  }\n}",
+        "responseCode": 500
+      },
+      "id": "error-response",
+      "name": "错误响应",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 500]
+    }
+  ],
+  "connections": {
+    "任务生成Webhook": {
+      "main": [
+        [
+          {
+            "node": "解析请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解析请求": {
+      "main": [
+        [
+          {
+            "node": "获取OKR目标",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "获取OKR目标": {
+      "main": [
+        [
+          {
+            "node": "构建AI提示词",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "构建AI提示词": {
+      "main": [
+        [
+          {
+            "node": "Gemini AI调用",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini AI调用": {
+      "main": [
+        [
+          {
+          "node": "解析AI响应",
+          "type": "main",
+          "index": 0
+        }
+      ]
+    ]
+  },
+  "解析AI响应": {
+    "main": [
+      [
+        {
+          "node": "返回结果",
+          "type": "main",
+          "index": 0
+        }
+      ]
+    ]
+  }
+},
+"pinData": {},
+"settings": {
+  "timezone": "Asia/Shanghai"
+},
+"staticData": null,
+"tags": ["daily-tasks", "okr", "ai-generation"],
+"triggerCount": 1,
+"updatedAt": "2025-08-29T01:00:00.000Z",
+"versionId": "1"
+}

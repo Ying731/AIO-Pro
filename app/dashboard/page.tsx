@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { handleAuthError, clearAuthStorage } from '@/lib/auth-helpers'
 import { GraduationCap, BookOpen, MessageCircle, Users, LogOut, Database } from 'lucide-react'
 import GoalManager from '@/components/GoalManager'
+import DailyTaskPanel from '@/components/DailyTaskPanel'
 import Link from 'next/link'
 
 interface User {
@@ -27,23 +29,38 @@ export default function DashboardPage() {
     try {
       const { data: { user }, error } = await supabase.auth.getUser()
       
-      if (error || !user) {
+      if (error) {
+        console.log('Auth error:', error.message)
+        await handleAuthError(error)
+        return
+      }
+      
+      if (!user) {
+        console.log('No user found, redirecting to login')
         window.location.href = '/'
         return
       }
       
+      console.log('User authenticated:', user.email)
       setUser(user as User)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error checking user:', error)
-      window.location.href = '/'
+      await handleAuthError(error)
     } finally {
       setLoading(false)
     }
   }
 
   const handleLogout = async () => {
-    await supabase.auth.signOut()
-    window.location.href = '/'
+    try {
+      await clearAuthStorage()
+      window.location.href = '/'
+    } catch (error) {
+      console.error('Logout error:', error)
+      // 强制清理并重定向
+      await supabase.auth.signOut()
+      window.location.href = '/'
+    }
   }
 
   if (loading) {
@@ -221,10 +238,20 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* 学生专属：目标管理 */}
+        {/* 学生专属：目标管理和任务管理 */}
         {role === 'student' && (
           <div className="mb-8">
-            <GoalManager />
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              {/* OKR管理面板 - 固定高度 */}
+              <div className="h-[800px]">
+                <GoalManager />
+              </div>
+              
+              {/* 今日任务面板 - 固定高度 */}
+              <div className="h-[800px]">
+                <DailyTaskPanel />
+              </div>
+            </div>
           </div>
         )}
 

@@ -1,8 +1,8 @@
 // 版本管理配置
 export const VERSION_CONFIG = {
-  current: "v0.3.0",
+  current: "v0.4.0",
   name: "启明星学习平台",
-  buildDate: "2025-08-28"
+  buildDate: "2025-08-29"
 }
 
 // 更新记录数据类型
@@ -17,6 +17,30 @@ export interface UpdateRecord {
 
 // 项目开发历史记录
 export const UPDATE_HISTORY: UpdateRecord[] = [
+  {
+    version: "v0.4.0",
+    date: "2025-08-29",
+    type: "feature",
+    title: "AI智能任务生成系统",
+    description: [
+      "新增今日任务面板，提供直观的任务管理界面",
+      "集成N8N工作流+Gemini AI任务生成系统",
+      "改进了每日任务推荐系统，支持基于OKR的智能推荐",
+      "增强了错误处理和用户体验，提供完善的容错机制"
+    ],
+    todos: [
+      "✅ 设计并实现今日任务管理面板",
+      "✅ 集成N8N工作流自动化平台",
+      "✅ 配置Gemini AI模型进行任务生成",
+      "✅ 修复Supabase查询参数语法问题",
+      "✅ 实现基于OKR目标的智能任务推荐",
+      "✅ 添加AI生成任务的解析和格式化功能",
+      "✅ 完善任务状态管理和数据库存储",
+      "✅ 增强工作流错误处理和日志记录",
+      "✅ 优化用户交互体验和界面响应",
+      "✅ 实现任务生成的多级容错机制"
+    ]
+  },
   {
     version: "v0.3.0",
     date: "2025-08-28",

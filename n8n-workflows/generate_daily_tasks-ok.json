@@ -1,0 +1,243 @@
+{
+  "name": "generate-daily-tasks",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "generate-daily-tasks",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "0a6c99bc-a1ad-464e-9e2a-56f139b7ed12",
+      "name": "任务生成Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        540,
+        240
+      ],
+      "webhookId": "generate-daily-tasks"
+    },
+    {
+      "parameters": {
+        "functionCode": "// 解析请求数据\nconst webhookData = $input.first().json;\n\nlet studentId = '';\nlet date = '';\nlet preferences = {};\n\ntry {\n  if (webhookData.body) {\n    const body = typeof webhookData.body === 'string' ? JSON.parse(webhookData.body) : webhookData.body;\n    studentId = body.student_id || '';\n    date = body.date || new Date().toISOString().split('T')[0];\n    preferences = body.preferences || {};\n  } else {\n    studentId = webhookData.student_id || '';\n    date = webhookData.date || new Date().toISOString().split('T')[0];\n    preferences = webhookData.preferences || {};\n  }\n\n  if (!studentId) {\n    throw new Error('缺少必需的student_id参数');\n  }\n\n  console.log('处理任务生成请求:', { studentId, date, preferences });\n\n  return {\n    studentId: studentId,\n    date: date,\n    taskCount: preferences.taskCount || 5,\n    maxDuration: preferences.maxDuration || 480,\n    priorities: preferences.priorities || ['high', 'medium'],\n    timestamp: new Date().toISOString()\n  };\n} catch (error) {\n  console.error('解析请求错误:', error.message);\n  throw new Error(`请求参数解析失败: ${error.message}`);\n}"
+      },
+      "id": "2e7235bb-ffea-4e52-ab4e-412ca3268299",
+      "name": "解析请求",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        760,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "learning_goals",
+        "limit": 5,
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "student_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.studentId }}"
+            }
+          ]
+        }
+      },
+      "id": "6d966af1-ea5c-4ea7-a321-e13d5b60fa16",
+      "name": "获取OKR目标",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        980,
+        240
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "WWm7t7sYsipMoQ2k",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// 构建AI任务生成提示词\nconst requestData = $('解析请求').first().json;\nconst goals = $('获取OKR目标').all();\n\nconsole.log('获取到的goals数据:', goals);\nconsole.log('goals数量:', goals.length);\n\nif (!goals || goals.length === 0) {\n  throw new Error('没有找到活跃的学习目标，请先创建一些OKR目标');\n}\n\n// 添加详细的状态检查\ngoals.forEach((goal, index) => {\n  console.log(`目标${index + 1}: \"${goal.title}\", status: \"${goal.status}\", 类型: ${typeof goal.status}`);\n});\n\nconsole.log(`找到${goals.length}个目标`);\n\n// 过滤有效的目标（只包含 in_progress 和 not_started 状态）\nconst validGoals = goals.filter(goal => {\n  const status = (goal.status || '').toString().trim();\n  const isValid = status === 'in_progress' || status === 'not_started';\n  console.log(`过滤检查 - 目标: \"${goal.title}\", status: \"${status}\", 有效: ${isValid}`);\n  return isValid;\n});\n\nconsole.log(`过滤后有${validGoals.length}个有效目标`);\n\nif (validGoals.length === 0) {\n  // 如果过滤后没有有效目标，但原始数据有目标，则使用原始数据\n  console.log('警告: 过滤后没有有效目标，使用所有原始目标');\n  const fallbackGoals = goals.length > 0 ? goals : [];\n  if (fallbackGoals.length === 0) {\n    throw new Error('没有找到任何学习目标，请先创建一些OKR目标');\n  }\n  validGoals.push(...fallbackGoals);\n}\n\nconsole.log(`最终使用${validGoals.length}个目标`);\n\n// 构建OKR上下文\nconst okrContext = validGoals.map((goal, index) => {\n  const keyResultsText = goal.key_results && goal.key_results.length > 0\n    ? goal.key_results\n        .filter(kr => kr.text && kr.text.trim())\n        .map((kr, i) => `    KR${i + 1}: ${kr.text} (当前进度: ${kr.progress || 0}%, ${kr.completed ? '已完成' : '进行中'})`)\n        .join('\\n')\n    : '    暂无具体关键结果';\n\n  // 计算紧急程度\n  let urgency = '【一般】';\n  if (goal.target_date) {\n    const today = new Date();\n    const targetDate = new Date(goal.target_date);\n    const daysLeft = Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));\n    \n    if (daysLeft <= 7) urgency = '【紧急】';\n    else if (daysLeft <= 30) urgency = '【重要】';\n  }\n\n  return `目标${index + 1}: ${goal.title} ${urgency}\n描述: ${goal.description || '无描述'}\n类别: ${goal.category}\n优先级: ${goal.priority}\n当前进度: ${goal.progress || 0}%\n截止日期: ${goal.target_date ? new Date(goal.target_date).toLocaleDateString() : '无'}\n关键结果:\n${keyResultsText}\n---`;\n}).join('\\n');\n\n// 构建AI提示词\nconst aiPrompt = `你是一位专业的学习规划师和AI助手。基于学生的OKR目标，为其生成今日具体的学习任务。\n\n学生的OKR信息：\n${okrContext}\n\n任务生成规则：\n1. 生成${requestData.taskCount}条今日具体可执行的学习任务\n2. 每个任务格式：【类别标签】具体任务描述 (预估时长)\n3. 优先推进进度较低的关键结果\n4. 任务难度适中，符合学生当前学习节奏\n5. 考虑目标截止日期，合理安排紧迫性\n6. 每个任务时长控制在30分钟到3小时之间\n7. 总学习时长不超过${Math.floor(requestData.maxDuration / 60)}小时\n\n类别标签参考：\n- 【理论学习】：概念学习、知识点理解\n- 【编程练习】：代码实践、算法题目\n- 【项目实践】：实际项目开发\n- 【复习巩固】：回顾总结、笔记整理\n- 【学习规划】：目标调整、计划制定\n\n输出格式要求：\n- 直接输出任务列表，不要额外解释\n- 每个任务单独一行\n- 按重要性和紧急程度排序\n- 确保任务具体可执行，有明确的学习目标\n\n请现在生成今日学习任务：`;\n\nconsole.log('AI提示词构建完成');\n\nreturn {\n  prompt: aiPrompt,\n  studentId: requestData.studentId,\n  taskCount: requestData.taskCount,\n  basedOnGoals: validGoals.map(g => g.title),\n  okrContext: okrContext\n};"
+      },
+      "id": "271ebcb0-837b-4395-a0bd-b08d0d0e055d",
+      "name": "构建AI提示词",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "你是一个专业的学习规划师。请严格按照用户要求生成学习任务列表。"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        1420,
+        240
+      ],
+      "id": "762071f9-345c-4286-8e6b-c29088f8f87a",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-1.5-flash",
+        "options": {
+          "maxOutputTokens": 1000,
+          "temperature": 0.7,
+          "topK": 40,
+          "topP": 0.8
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        420
+      ],
+      "id": "f4934d51-5188-467f-a361-35fe2283dae1",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "zTsZXEBOGaak4eW5",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// 解析AI Agent响应并格式化任务数据\nconst aiResponse = $input.first().json;\nconst promptData = $('构建AI提示词').first().json;\n\nconsole.log('原始AI响应:', JSON.stringify(aiResponse, null, 2));\n\n// 从AI Agent的响应中提取文本\nlet aiText = '';\nif (aiResponse.output) {\n  aiText = aiResponse.output;\n} else if (aiResponse.text) {\n  aiText = aiResponse.text;\n} else if (typeof aiResponse === 'string') {\n  aiText = aiResponse;\n} else {\n  console.error('无法从AI响应中提取文本:', aiResponse);\n  throw new Error('AI响应格式异常：无法提取生成的任务文本');\n}\n\nconsole.log('提取的AI文本:', aiText);\n\n// 解析任务列表\nconst taskLines = aiText.split('\\n')\n  .map(line => line.trim())\n  .filter(line => {\n    // 过滤掉空行、标题行、解释性文字\n    return line && \n           !line.includes('：') && \n           !line.startsWith('#') &&\n           !line.includes('以下是') &&\n           !line.includes('根据您的') &&\n           (line.includes('【') || /^\\d+\\./. test(line));\n  });\n\nconsole.log('解析出的任务行数:', taskLines.length);\nconsole.log('任务行内容:', taskLines);\n\nif (taskLines.length === 0) {\n  throw new Error('AI没有生成有效的任务列表，请重新尝试');\n}\n\nconst tasks = taskLines.map((taskLine, index) => {\n  let cleanLine = taskLine.trim().replace(/^\\d+\\.\\s*/, ''); // 移除数字序号\n  cleanLine = cleanLine.replace(/^[-*]\\s*/, ''); // 移除列表符号\n  \n  // 提取类别\n  const categoryMatch = cleanLine.match(/【([^】]+)】/);\n  const category = categoryMatch ? categoryMatch[1] : '学习任务';\n  \n  // 提取时长\n  const timeMatch = cleanLine.match(/\\(([^)]+)\\)/);\n  let estimatedMinutes = 60; // 默认60分钟\n  \n  if (timeMatch) {\n    const timeStr = timeMatch[1];\n    if (timeStr.includes('小时')) {\n      const hours = parseFloat(timeStr.replace(/[^\\d.]/g, ''));\n      estimatedMinutes = Math.round(hours * 60);\n    } else if (timeStr.includes('分钟')) {\n      estimatedMinutes = Math.round(parseFloat(timeStr.replace(/[^\\d.]/g, '')));\n    }\n  }\n  \n  // 确保时长在合理范围内\n  if (estimatedMinutes < 15) estimatedMinutes = 30;\n  if (estimatedMinutes > 180) estimatedMinutes = 120;\n  \n  return {\n    task_content: cleanLine,\n    task_category: category,\n    estimated_minutes: estimatedMinutes,\n    task_order: index + 1,\n    status: 'pending'\n  };\n}).filter(task => task.task_content.length > 10); // 过滤掉过短的任务\n\n// 计算总预估时长\nconst totalMinutes = tasks.reduce((sum, task) => sum + task.estimated_minutes, 0);\nconst hours = Math.floor(totalMinutes / 60);\nconst minutes = totalMinutes % 60;\n\nlet totalEstimatedTime = '';\nif (hours > 0 && minutes > 0) {\n  totalEstimatedTime = `约${hours}小时${minutes}分钟`;\n} else if (hours > 0) {\n  totalEstimatedTime = `约${hours}小时`;\n} else {\n  totalEstimatedTime = `约${minutes}分钟`;\n}\n\nconsole.log(`成功解析出${tasks.length}个任务，总时长${totalEstimatedTime}`);\n\nif (tasks.length === 0) {\n  throw new Error('未能解析出有效的学习任务');\n}\n\nreturn {\n  tasks: tasks,\n  basedOnGoals: promptData.basedOnGoals,\n  generatedAt: new Date().toISOString(),\n  totalEstimatedTime: totalEstimatedTime,\n  aiRawResponse: aiText,\n  studentId: promptData.studentId\n};"
+      },
+      "id": "d76ba353-818a-4667-a420-260b6d3a2173",
+      "name": "解析AI响应",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"data\": {\n    \"tasks\": {{ JSON.stringify($json.tasks) }},\n    \"basedOnGoals\": {{ JSON.stringify($json.basedOnGoals) }},\n    \"generatedAt\": \"{{ $json.generatedAt }}\",\n    \"totalEstimatedTime\": \"{{ $json.totalEstimatedTime }}\"\n  },\n  \"debug\": {\n    \"studentId\": \"{{ $json.studentId }}\",\n    \"taskCount\": {{ $json.tasks.length }},\n    \"source\": \"n8n-gemini-workflow\"\n  }\n}",
+        "options": {}
+      },
+      "id": "88c23ef2-aecb-428f-9566-eabfb4bdc3a3",
+      "name": "返回结果",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2060,
+        240
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "任务生成Webhook": {
+      "main": [
+        [
+          {
+            "node": "解析请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解析请求": {
+      "main": [
+        [
+          {
+            "node": "获取OKR目标",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "获取OKR目标": {
+      "main": [
+        [
+          {
+            "node": "构建AI提示词",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "构建AI提示词": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "解析AI响应",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解析AI响应": {
+      "main": [
+        [
+          {
+            "node": "返回结果",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "d1336190-39a0-4b66-9a30-e583ac324cb7",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "fd88bd7e50ed60b59c131695eda187fa1a222a9ce66dab3c69a1b4bb57ecbb64"
+  },
+  "id": "iTe28dUTJyZWlpQs",
+  "tags": []
+}

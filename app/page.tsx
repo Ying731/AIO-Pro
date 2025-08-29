@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { GraduationCap, CheckCircle } from 'lucide-react'
+import { clearAuthStorage, handleAuthError, checkAuthState } from '@/lib/auth-helpers'
+import { GraduationCap, CheckCircle, RefreshCw } from 'lucide-react'
 import Link from 'next/link'
 import VersionDisplay from '@/components/VersionDisplay'
 
@@ -10,17 +11,38 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [isClearing, setIsClearing] = useState(false)
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
 
   useEffect(() => {
-    // 检查是否从邮箱验证页面跳转过来
+    // 检查URL参数
     const urlParams = new URLSearchParams(window.location.search)
+    
     if (urlParams.get('verified') === 'true') {
       setSuccessMessage('邮箱验证成功！现在您可以登录了。')
       // 清除URL参数
       window.history.replaceState({}, document.title, window.location.pathname)
+    } else if (urlParams.get('error') === 'session_expired') {
+      setError('会话已过期，请重新登录')
+      // 清除URL参数
+      window.history.replaceState({}, document.title, window.location.pathname)
     }
+
+    // 检查当前用户状态
+    const initAuth = async () => {
+      try {
+        const session = await checkAuthState()
+        if (session?.user) {
+          // 如果用户已登录，重定向到仪表板
+          window.location.href = '/dashboard'
+        }
+      } catch (error) {
+        console.log('Auth initialization error:', error)
+      }
+    }
+    
+    initAuth()
   }, [])
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -30,25 +52,54 @@ export default function LoginPage() {
     setSuccessMessage('')
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      // 首先清理任何旧的会话
+      await supabase.auth.signOut()
+      
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       })
       
       if (error) {
-        // 处理特定的邮箱未验证错误
+        await handleAuthError(error)
+        // 处理特定的错误类型
         if (error.message.includes('email not confirmed') || error.message.includes('Email not confirmed')) {
           throw new Error('邮箱未验证，请检查您的邮箱并点击验证链接后再登录')
+        } else if (error.message.includes('Invalid login credentials')) {
+          throw new Error('邮箱或密码错误，请检查后重试')
         }
-        throw error
+        throw new Error(error.message)
       }
       
-      // 登录成功，重定向将由认证状态变化处理
-      window.location.href = '/dashboard'
+      if (data?.user && data?.session) {
+        console.log('Login successful, redirecting...')
+        window.location.href = '/dashboard'
+      }
     } catch (err: any) {
-      setError(err.message || '登录失败')
+      console.error('Login error:', err)
+      setError(err.message || '登录失败，请重试')
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleClearStorage = async () => {
+    setIsClearing(true)
+    setError('')
+    setSuccessMessage('')
+    
+    try {
+      await clearAuthStorage()
+      setSuccessMessage('已清理所有认证数据，请重新登录')
+      
+      // 清空表单
+      setEmail('')
+      setPassword('')
+    } catch (error) {
+      console.error('Clear storage error:', error)
+      setError('清理数据时出错，请刷新页面重试')
+    } finally {
+      setIsClearing(false)
     }
   }
 
@@ -111,10 +162,21 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || isClearing}
               className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isLoading ? '登录中...' : '登录'}
+            </button>
+
+            {/* 清理存储按钮 */}
+            <button
+              type="button"
+              onClick={handleClearStorage}
+              disabled={isLoading || isClearing}
+              className="w-full mt-2 bg-gray-100 text-gray-600 py-2 px-4 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center justify-center"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${isClearing ? 'animate-spin' : ''}`} />
+              {isClearing ? '清理中...' : '遇到登录问题？点击清理数据'}
             </button>
           </form>
 
